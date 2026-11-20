@@ -1,18 +1,19 @@
 import { useEffect } from 'react';
 import { FAKE_CHATS } from '../bosskey/fakeChats';
 import type { Settings } from '../engine/storage';
-import type { DailyStats } from '../engine/types';
+import type { DailyStats, RogueStats } from '../engine/types';
 
 interface Props {
   settings: Settings;
   stats: DailyStats;
+  rogue: RogueStats;
   streak: number;
   onChange: (s: Settings) => void;
   onReset: () => void;
   onClose: () => void;
 }
 
-export function SettingsDialog({ settings, stats, streak, onChange, onReset, onClose }: Props) {
+export function SettingsDialog({ settings, stats, rogue, streak, onChange, onReset, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -94,6 +95,28 @@ export function SettingsDialog({ settings, stats, streak, onChange, onReset, onC
                 </div>
               </div>
             ))}
+          </div>
+        </section>
+
+        <section>
+          <h3>Bug 地城成績</h3>
+          <div className="stats">
+            <div>
+              <b>{rogue.runs}</b>
+              <span>總局數</span>
+            </div>
+            <div>
+              <b>{rogue.wins}</b>
+              <span>準時下班</span>
+            </div>
+            <div>
+              <b>{rogue.bestDepth}</b>
+              <span>最深樓層</span>
+            </div>
+            <div>
+              <b>{rogue.runs ? Math.round((rogue.wins / rogue.runs) * 100) : 0}%</b>
+              <span>通關率</span>
+            </div>
           </div>
         </section>
 

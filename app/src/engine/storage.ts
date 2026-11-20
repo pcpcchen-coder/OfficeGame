@@ -51,7 +51,12 @@ export function loadSave(): SaveData {
     return {
       ...base,
       ...data,
-      profile: { ...base.profile, ...data.profile, daily: { ...base.profile.daily, ...data.profile?.daily } },
+      profile: {
+        ...base.profile,
+        ...data.profile,
+        daily: { ...base.profile.daily, ...data.profile?.daily },
+        rogue: { ...base.profile.rogue, ...data.profile?.rogue },
+      },
       settings: { ...base.settings, ...data.settings },
     } as SaveData;
   } catch {

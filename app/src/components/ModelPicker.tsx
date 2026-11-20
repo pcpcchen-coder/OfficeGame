@@ -39,7 +39,7 @@ export function ModelPicker({ current, onPick }: Props) {
                 className={m.id === current ? 'selected' : undefined}
                 onClick={() => {
                   setOpen(false);
-                  onPick(m.id);
+                  if (m.available) onPick(m.id);
                 }}
               >
                 <span className="model-name">{m.modelName}</span>

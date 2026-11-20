@@ -207,6 +207,7 @@ export default function App() {
         <SettingsDialog
           settings={save.settings}
           stats={save.profile.daily}
+          rogue={save.profile.rogue}
           streak={currentStreak(save.profile.daily, today)}
           onChange={updateSettings}
           onReset={reset}
