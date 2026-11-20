@@ -13,6 +13,7 @@ export type Block =
   | { kind: 'heading'; text: string }
   | { kind: 'list'; ordered: boolean; items: ListItem[] }
   | { kind: 'code'; lang?: string; text: string }
+  | { kind: 'table'; headers: string[]; rows: string[][] }
   | { kind: 'share'; text: string };
 
 export interface ChatMessage {
@@ -25,6 +26,9 @@ export interface ChatMessage {
 export type Reply = Block[];
 
 export type GameId = 'mo-assistant' | 'mo-daily' | 'mo-idle-turbo' | 'mo-rogue-mini';
+
+/** 模型選單上還沒開放的項目 */
+export type ComingSoonId = 'mo-life-sim';
 
 export type GameEvent = 'bosskey-released';
 
@@ -41,9 +45,18 @@ export interface DailyStats {
   distribution: number[];
 }
 
+export interface RogueStats {
+  runs: number;
+  wins: number;
+  bestDepth: number;
+  /** 最後一次完成「每日地城」的天數 */
+  lastDailyDay: number | null;
+}
+
 export interface Profile {
   tutorialDone: boolean;
   daily: DailyStats;
+  rogue: RogueStats;
 }
 
 export type Action = { type: 'open-game'; gameId: GameId } | { type: 'restart-tutorial' };
@@ -89,5 +102,6 @@ export function emptyProfile(): Profile {
       lastPlayedDay: null,
       distribution: [0, 0, 0, 0, 0, 0],
     },
+    rogue: { runs: 0, wins: 0, bestDepth: 0, lastDailyDay: null },
   };
 }

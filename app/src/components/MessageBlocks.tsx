@@ -58,6 +58,29 @@ export function MessageBlocks({ blocks }: { blocks: Block[] }) {
                 </pre>
               </div>
             );
+          case 'table':
+            return (
+              <div key={i} className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      {b.headers.map((h, j) => (
+                        <th key={j}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {b.rows.map((r, j) => (
+                      <tr key={j}>
+                        {r.map((c, k) => (
+                          <td key={k}>{c}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
           case 'share':
             return (
               <div key={i} className="code-block share">
