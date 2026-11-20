@@ -1,7 +1,10 @@
 name: Deploy to GitHub Pages
 
 # 需要先在 repo 的 Settings → Pages 把 Source 設成「GitHub Actions」
+# main 有新的提交時自動部署；也可以在 Actions 頁面手動執行
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
