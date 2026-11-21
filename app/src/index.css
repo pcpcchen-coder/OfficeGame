@@ -536,6 +536,14 @@ button:disabled {
   font-family: var(--mono);
 }
 
+.table-wrap td.col-text,
+.table-wrap th.col-text {
+  text-align: left;
+  font-family: inherit;
+  white-space: normal;
+  min-width: 12em;
+}
+
 .copy-btn {
   border: 0;
   background: transparent;

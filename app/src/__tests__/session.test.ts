@@ -26,7 +26,7 @@ describe('新手教學流程', () => {
 
     r = sendInput(conv, { type: 'text', text: '好，開始' }, ctx(r.profile));
     if (!r.ok) throw new Error(r.notice);
-    expect(r.action).toEqual({ type: 'open-game', gameId: 'mo-daily' });
+    expect(r.action).toEqual({ type: 'open-game', gameId: 'mo-mud' });
   });
 
   it('教學完成後，新的主對話直接進選單', () => {

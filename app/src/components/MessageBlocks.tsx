@@ -65,7 +65,9 @@ export function MessageBlocks({ blocks }: { blocks: Block[] }) {
                   <thead>
                     <tr>
                       {b.headers.map((h, j) => (
-                        <th key={j}>{h}</th>
+                        <th key={j} className={b.align?.[j] === 'left' ? 'col-text' : undefined}>
+                          {h}
+                        </th>
                       ))}
                     </tr>
                   </thead>
@@ -73,7 +75,9 @@ export function MessageBlocks({ blocks }: { blocks: Block[] }) {
                     {b.rows.map((r, j) => (
                       <tr key={j}>
                         {r.map((c, k) => (
-                          <td key={k}>{c}</td>
+                          <td key={k} className={b.align?.[k] === 'left' ? 'col-text' : undefined}>
+                            {c}
+                          </td>
                         ))}
                       </tr>
                     ))}

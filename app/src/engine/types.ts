@@ -13,7 +13,7 @@ export type Block =
   | { kind: 'heading'; text: string }
   | { kind: 'list'; ordered: boolean; items: ListItem[] }
   | { kind: 'code'; lang?: string; text: string }
-  | { kind: 'table'; headers: string[]; rows: string[][] }
+  | { kind: 'table'; headers: string[]; rows: string[][]; /** 逐欄對齊；文字欄用 'left' */ align?: Array<'left' | 'right'> }
   | { kind: 'share'; text: string };
 
 export interface ChatMessage {
@@ -25,7 +25,7 @@ export interface ChatMessage {
 /** Mo 的一則回覆（還沒有 id） */
 export type Reply = Block[];
 
-export type GameId = 'mo-assistant' | 'mo-daily' | 'mo-idle-turbo' | 'mo-rogue-mini' | 'mo-life-sim';
+export type GameId = 'mo-assistant' | 'mo-mud' | 'mo-daily' | 'mo-idle-turbo' | 'mo-rogue-mini' | 'mo-life-sim';
 
 /** 模型選單上還沒開放的項目 */
 export type ComingSoonId = 'mo-guard';
