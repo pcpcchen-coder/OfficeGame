@@ -208,6 +208,7 @@ export default function App() {
           settings={save.settings}
           stats={save.profile.daily}
           rogue={save.profile.rogue}
+          life={save.profile.life}
           streak={currentStreak(save.profile.daily, today)}
           onChange={updateSettings}
           onReset={reset}

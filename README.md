@@ -11,4 +11,4 @@
 
 ## 程式
 
-網頁版在 [`app/`](app/)：聊天外殼、老闆鍵、新手教學，以及三款遊戲：每日提示詞、算力農場、Bug 地城。線上試玩：https://pcpcchen-coder.github.io/OfficeGame/ 。說明與開發指令見 [app/README.md](app/README.md)。
+網頁版在 [`app/`](app/)：聊天外殼、老闆鍵、新手教學，以及四款遊戲：每日提示詞、算力農場、Bug 地城、建議回覆人生。線上試玩：https://pcpcchen-coder.github.io/OfficeGame/ 。說明與開發指令見 [app/README.md](app/README.md)。
