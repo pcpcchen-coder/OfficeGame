@@ -9,7 +9,7 @@ export interface TutorialState {
 }
 
 const PIVOT_CHOICES = ['什麼秘密？', '我要去跟 IT 講'];
-const MENU_CHOICES = ['開始今天的每日提示詞', '去算力農場', '下 Bug 地城', '再看一次教學'];
+const MENU_CHOICES = ['開始今天的每日提示詞', '去算力農場', '下 Bug 地城', '開始建議回覆人生', '再看一次教學'];
 
 const PIVOT_TAIL: Reply = [
   { kind: 'text', text: '……' },
@@ -33,7 +33,7 @@ function menu(): StepResult<TutorialState> {
     'menu',
     [
       [
-        { kind: 'text', text: '後台的遊戲都在上面的模型選單裡。現在開放三款：mo-daily（每日提示詞）、mo-idle-turbo（算力農場）、mo-rogue-mini（Bug 地城）。' },
+        { kind: 'text', text: '後台的遊戲都在上面的模型選單裡。現在開放四款：mo-daily（每日提示詞）、mo-idle-turbo（算力農場）、mo-rogue-mini（Bug 地城）、mo-life-sim（建議回覆人生）。' },
         { kind: 'text', tone: 'muted', text: '有人經過就按 Esc。我會掩護你。' },
       ],
     ],
@@ -168,6 +168,9 @@ export const tutorialGame: MoyuGame<TutorialState> = {
         }
         if (text === '下 Bug 地城') {
           return { ...menu(), replies: [[{ kind: 'text', text: '記得帶咖啡。' }]], action: { type: 'open-game', gameId: 'mo-rogue-mini' } };
+        }
+        if (text === '開始建議回覆人生') {
+          return { ...menu(), replies: [[{ kind: 'text', text: '祝你入職順利。我會幫你想回覆的。' }]], action: { type: 'open-game', gameId: 'mo-life-sim' } };
         }
         if (text === '再看一次教學') {
           return { state, replies: [], suggestions: [], action: { type: 'restart-tutorial' } };

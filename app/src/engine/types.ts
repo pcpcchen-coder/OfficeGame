@@ -25,10 +25,10 @@ export interface ChatMessage {
 /** Mo 的一則回覆（還沒有 id） */
 export type Reply = Block[];
 
-export type GameId = 'mo-assistant' | 'mo-daily' | 'mo-idle-turbo' | 'mo-rogue-mini';
+export type GameId = 'mo-assistant' | 'mo-daily' | 'mo-idle-turbo' | 'mo-rogue-mini' | 'mo-life-sim';
 
 /** 模型選單上還沒開放的項目 */
-export type ComingSoonId = 'mo-life-sim';
+export type ComingSoonId = 'mo-guard';
 
 export type GameEvent = 'bosskey-released';
 
@@ -53,10 +53,18 @@ export interface RogueStats {
   lastDailyDay: number | null;
 }
 
+export interface LifeStats {
+  runs: number;
+  bestDays: number;
+  /** 解鎖過的結局 id */
+  endings: string[];
+}
+
 export interface Profile {
   tutorialDone: boolean;
   daily: DailyStats;
   rogue: RogueStats;
+  life: LifeStats;
 }
 
 export type Action = { type: 'open-game'; gameId: GameId } | { type: 'restart-tutorial' };
@@ -103,5 +111,6 @@ export function emptyProfile(): Profile {
       distribution: [0, 0, 0, 0, 0, 0],
     },
     rogue: { runs: 0, wins: 0, bestDepth: 0, lastDailyDay: null },
+    life: { runs: 0, bestDays: 0, endings: [] },
   };
 }

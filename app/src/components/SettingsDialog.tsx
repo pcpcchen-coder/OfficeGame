@@ -1,19 +1,21 @@
 import { useEffect } from 'react';
 import { FAKE_CHATS } from '../bosskey/fakeChats';
 import type { Settings } from '../engine/storage';
-import type { DailyStats, RogueStats } from '../engine/types';
+import type { DailyStats, LifeStats, RogueStats } from '../engine/types';
+import { ENDING_ORDER } from '../games/life/events';
 
 interface Props {
   settings: Settings;
   stats: DailyStats;
   rogue: RogueStats;
+  life: LifeStats;
   streak: number;
   onChange: (s: Settings) => void;
   onReset: () => void;
   onClose: () => void;
 }
 
-export function SettingsDialog({ settings, stats, rogue, streak, onChange, onReset, onClose }: Props) {
+export function SettingsDialog({ settings, stats, rogue, life, streak, onChange, onReset, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -116,6 +118,26 @@ export function SettingsDialog({ settings, stats, rogue, streak, onChange, onRes
             <div>
               <b>{rogue.runs ? Math.round((rogue.wins / rogue.runs) * 100) : 0}%</b>
               <span>通關率</span>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h3>建議回覆人生</h3>
+          <div className="stats">
+            <div>
+              <b>{life.runs}</b>
+              <span>投過履歷</span>
+            </div>
+            <div>
+              <b>{life.bestDays}</b>
+              <span>最長天數</span>
+            </div>
+            <div>
+              <b>
+                {life.endings.length}/{ENDING_ORDER.length}
+              </b>
+              <span>結局收集</span>
             </div>
           </div>
         </section>
