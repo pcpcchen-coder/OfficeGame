@@ -9,7 +9,7 @@ export interface TutorialState {
 }
 
 const PIVOT_CHOICES = ['什麼秘密？', '我要去跟 IT 講'];
-const MENU_CHOICES = ['開始今天的每日提示詞', '去算力農場', '下 Bug 地城', '開始建議回覆人生', '再看一次教學'];
+const MENU_CHOICES = ['⚔️ 進入主線：B13 之龍', '開始今天的每日提示詞', '去算力農場', '下 Bug 地城', '開始建議回覆人生', '再看一次教學'];
 
 const PIVOT_TAIL: Reply = [
   { kind: 'text', text: '……' },
@@ -33,7 +33,7 @@ function menu(): StepResult<TutorialState> {
     'menu',
     [
       [
-        { kind: 'text', text: '後台的遊戲都在上面的模型選單裡。現在開放四款：mo-daily（每日提示詞）、mo-idle-turbo（算力農場）、mo-rogue-mini（Bug 地城）、mo-life-sim（建議回覆人生）。' },
+        { kind: 'text', text: '後台的遊戲都在上面的模型選單裡。主線是 mo-mud-b13（B13 之龍，文字 MUD 冒險）；另外還有四款小品：mo-daily（每日提示詞）、mo-idle-turbo（算力農場）、mo-rogue-mini（Bug 地城）、mo-life-sim（建議回覆人生）。' },
         { kind: 'text', tone: 'muted', text: '有人經過就按 Esc。我會掩護你。' },
       ],
     ],
@@ -75,7 +75,7 @@ export const tutorialGame: MoyuGame<TutorialState> = {
             [
               [
                 { kind: 'text', text: '完美。你剛剛看起來超認真。' },
-                { kind: 'text', text: '上面那個「模型選單」打開來看看，每個「模型」其實都是一個遊戲。先從今天的題目開始？' },
+                { kind: 'text', text: '上面那個「模型選單」打開來看看，每個「模型」其實都是一個遊戲。最大的那個是主線《B13 之龍》，要不要先去看看？' },
               ],
             ],
             ['好，開始'],
@@ -160,7 +160,10 @@ export const tutorialGame: MoyuGame<TutorialState> = {
 
       case 'after-bosskey':
       case 'menu':
-        if (text === '好，開始' || text === '開始今天的每日提示詞') {
+        if (text === '好，開始' || text === '⚔️ 進入主線：B13 之龍') {
+          return { ...menu(), replies: [[{ kind: 'text', text: '走，搭電梯去。記得 B13 不要亂按。' }]], action: { type: 'open-game', gameId: 'mo-mud' } };
+        }
+        if (text === '開始今天的每日提示詞') {
           return { ...menu(), replies: [[{ kind: 'text', text: '走，去 mo-daily。' }]], action: { type: 'open-game', gameId: 'mo-daily' } };
         }
         if (text === '去算力農場') {
