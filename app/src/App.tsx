@@ -10,6 +10,7 @@ import { createConversation, findCurrent, sendInput, type Outcome } from './engi
 import { clearSave, emptySave, loadSave, writeSave, type Conversation, type SaveData, type Settings } from './engine/storage';
 import { emptyProfile, type GameId, type PlayerInput, type StepContext } from './engine/types';
 import { currentStreak } from './games/daily/daily';
+import { getGame, isReleased } from './games/registry';
 import { useBossKey } from './hooks/useBossKey';
 
 const NORMAL_ICON = `${import.meta.env.BASE_URL}favicon.svg`;
@@ -86,12 +87,21 @@ export default function App() {
   useEffect(() => writeSave(save), [save]);
 
   const active = save.conversations.find((c) => c.id === save.activeId) ?? save.conversations[0];
-  // 每分鐘檢查一次是否過了台灣午夜，開著不關也會換到新的一天
-  const [today, setToday] = useState(() => taipeiDayIndex(new Date()));
+  // 每分鐘更新一次時鐘：過了台灣午夜會換到新的一天，上線日到了新遊戲也會自動開放
+  const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
-    const t = setInterval(() => setToday(taipeiDayIndex(new Date())), 60_000);
+    const t = setInterval(() => setClock(new Date()), 60_000);
     return () => clearInterval(t);
   }, []);
+  const today = taipeiDayIndex(clock);
+  // 網址加上 ?preview 可以提前試玩還沒上線的遊戲
+  const [preview] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).has('preview');
+    } catch {
+      return false;
+    }
+  });
 
   const bossChat = useMemo(() => {
     const picked = FAKE_CHATS.find((c) => c.id === save.settings.bossChat);
@@ -140,6 +150,8 @@ export default function App() {
     setNotice('');
     setSidebarOpen(false);
     if (active?.gameId === gameId) return;
+    const game = getGame(gameId);
+    if (!game || !isReleased(game, new Date(), preview)) return;
     setAll(openGame(save, gameId));
   };
 
@@ -184,7 +196,7 @@ export default function App() {
           <button type="button" className="icon-btn menu-btn" onClick={() => setSidebarOpen(true)} aria-label="開啟側欄">
             ☰
           </button>
-          <ModelPicker current={active?.gameId ?? 'mo-assistant'} onPick={pickGame} />
+          <ModelPicker current={active?.gameId ?? 'mo-assistant'} onPick={pickGame} now={clock} preview={preview} />
           <div className="spacer" />
           <button type="button" className="icon-btn" onClick={toggleBoss} aria-label="收合" title="收合（Esc）">
             ⌄

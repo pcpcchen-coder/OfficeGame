@@ -25,10 +25,10 @@ export interface ChatMessage {
 /** Mo 的一則回覆（還沒有 id） */
 export type Reply = Block[];
 
-export type GameId = 'mo-assistant' | 'mo-mud' | 'mo-daily' | 'mo-idle-turbo' | 'mo-rogue-mini' | 'mo-life-sim';
+export type GameId = 'mo-assistant' | 'mo-mud' | 'mo-daily' | 'mo-idle-turbo' | 'mo-rogue-mini' | 'mo-life-sim' | 'mo-guard';
 
 /** 模型選單上還沒開放的項目 */
-export type ComingSoonId = 'mo-guard';
+export type ComingSoonId = never;
 
 export type GameEvent = 'bosskey-released';
 
@@ -90,6 +90,8 @@ export interface MoyuGame<S> {
   /** 下拉選單裡的說明 */
   description: string;
   available: boolean;
+  /** 上線日（台灣時間 YYYY-MM-DD）；在這天之前模型選單顯示「即將推出」 */
+  releaseDate?: string;
   /** 決定這局的種子；同一個種子會回到同一段對話（例如每日題目） */
   seedFor(ctx: StepContext): string;
   init(seed: string, ctx: StepContext): StepResult<S>;

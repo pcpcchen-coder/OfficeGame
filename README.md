@@ -12,4 +12,4 @@
 
 ## 程式
 
-網頁版在 [`app/`](app/)：聊天外殼、老闆鍵、新手教學，主線遊戲《B13 之龍》（文字 MUD，第一章），以及四款小品：每日提示詞、算力農場、Bug 地城、建議回覆人生。線上試玩：https://pcpcchen-coder.github.io/OfficeGame/ 。說明與開發指令見 [app/README.md](app/README.md)。
+網頁版在 [`app/`](app/)：聊天外殼、老闆鍵、新手教學，主線遊戲《B13 之龍》（文字 MUD，第一、二章），以及小品：每日提示詞、算力農場、Bug 地城、建議回覆人生、年終密碼（2026-12-12 上線）。線上試玩：https://pcpcchen-coder.github.io/OfficeGame/ 。說明與開發指令見 [app/README.md](app/README.md)。
