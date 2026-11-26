@@ -26,6 +26,7 @@ import {
   itemLabel,
   KPI_LINES,
   KPI_QUEST_KILLS,
+  ENERGY_REGEN_MS,
   MAX_ENERGY,
   PATROL_EVENTS,
   PERK_TIERS,
@@ -88,6 +89,8 @@ export interface MudState {
   room: RoomId;
   energy: number;
   energyDay: number;
+  /** 上一次自動恢復精力的時間（毫秒）；舊存檔沒有這個欄位 */
+  energyAt?: number;
   weapon: ItemId | null;
   armor: ItemId | null;
   bag: Partial<Record<ItemId, number>>;
@@ -149,11 +152,36 @@ export function damage(atk: number, def: number, rng: Rng): number {
   return Math.max(1, atk + rng.int(3) - def);
 }
 
-/** 換日時回滿精力 */
-export function refreshEnergy(s: MudState, now: Date): { state: MudState; refreshed: boolean } {
+/**
+ * 精力恢復：
+ * - 台灣時間換日時直接回滿
+ * - 平常每 6 分鐘恢復 1 點，最多到上限（離開一下、開個會回來就能再玩）
+ */
+export function refreshEnergy(s: MudState, now: Date): { state: MudState; refreshed: boolean; regained: number } {
   const today = taipeiDayIndex(now);
-  if (s.energyDay === today) return { state: s, refreshed: false };
-  return { state: { ...s, energy: energyMax(s), energyDay: today }, refreshed: s.energyDay !== -1 };
+  const t = now.getTime();
+  const max = energyMax(s);
+  if (s.energyDay !== today) {
+    return { state: { ...s, energy: Math.max(s.energy, max), energyDay: today, energyAt: t }, refreshed: s.energyDay !== -1, regained: 0 };
+  }
+  if (s.energy >= max || s.energyAt === undefined) return { state: { ...s, energyAt: t }, refreshed: false, regained: 0 };
+  const ticks = Math.floor(Math.max(0, t - s.energyAt) / ENERGY_REGEN_MS);
+  if (ticks <= 0) return { state: s, refreshed: false, regained: 0 };
+  const energy = Math.min(max, s.energy + ticks);
+  const energyAt = energy >= max ? t : s.energyAt + ticks * ENERGY_REGEN_MS;
+  return { state: { ...s, energy, energyAt }, refreshed: false, regained: energy - s.energy };
+}
+
+/** 下一點精力還要等幾分鐘（四捨五入到整數，至少 1） */
+export function minutesToNextEnergy(s: MudState, now: Date): number {
+  const at = s.energyAt ?? now.getTime();
+  return Math.max(1, Math.ceil((at + ENERGY_REGEN_MS - now.getTime()) / 60_000));
+}
+
+/** 精力用完時的提示：多久後恢復、可以買什麼 */
+function outOfEnergy(s: MudState, now: Date, what: string): string {
+  const coffee = (s.bag.espresso ?? 0) > 0 ? '包包裡的雙份濃縮可以立刻恢復 5 點。' : '1F 便利商店的「雙份濃縮」可以立刻恢復 5 點。';
+  return `精力用完了，${what}。每 6 分鐘會恢復 1 點（下一點大約 ${minutesToNextEnergy(s, now)} 分鐘後），${coffee}`;
 }
 
 function stamp(now: Date): string {
@@ -172,7 +200,9 @@ function statusLine(s: MudState, now: Date): Block {
   return {
     kind: 'text',
     tone: 'muted',
-    text: `Lv${s.level} ${CLASSES[s.cls!].name} · HP ${s.hp}/${s.maxHp} · 攻 ${atkOf(s)} 防 ${defOf(s)} · 💰 ${s.gold} · ⚡ ${s.energy}/${energyMax(s)} · EXP ${s.exp}/${expToNext(s.level)}${isNight(now) ? ' · 🌙 夜間' : ''}`,
+    text: `Lv${s.level} ${CLASSES[s.cls!].name} · HP ${s.hp}/${s.maxHp} · 攻 ${atkOf(s)} 防 ${defOf(s)} · 💰 ${s.gold} · ⚡ ${s.energy}/${energyMax(s)}${
+      s.energy < energyMax(s) ? `（+1 約 ${minutesToNextEnergy(s, now)} 分）` : ''
+    } · EXP ${s.exp}/${expToNext(s.level)}${isNight(now) ? ' · 🌙 夜間' : ''}`,
   };
 }
 
@@ -251,6 +281,10 @@ function consumableButtons(s: MudState): string[] {
   return out;
 }
 
+function espressoButton(s: MudState): string[] {
+  return (s.bag.espresso ?? 0) > 0 && s.energy < energyMax(s) ? [`☕ 喝雙份濃縮（${s.bag.espresso}）`] : [];
+}
+
 function perkButtons(s: MudState): string[] {
   const tier = pendingPerkTier(s);
   if (!tier) return [];
@@ -268,7 +302,7 @@ export function suggestions(s: MudState, env: Env): string[] {
     const c = CLASSES[s.cls!];
     return ['⚔️ 攻擊', s.skillCd > 0 ? `✨ ${c.skill}（冷卻 ${s.skillCd}）` : `✨ ${c.skill}`, ...consumableButtons(s), '🏃 逃跑'];
   }
-  const hurt = s.hp < s.maxHp ? consumableButtons(s) : [];
+  const hurt = [...(s.hp < s.maxHp ? consumableButtons(s) : []), ...espressoButton(s)];
   const perks = perkButtons(s);
   const boss = BOSSES.find((b) => b.room === s.room && b.room !== 'meeting' && b.room !== 'exec');
   switch (s.room) {
@@ -276,6 +310,7 @@ export function suggestions(s: MudState, env: Env): string[] {
       return [
         ...perks,
         ...(s.flags.cleared && opened('ngplus', env) ? ['🔁 轉職（二周目）'] : []),
+        ...espressoButton(s),
         '📰 公告欄',
         '💬 跟保全大叔聊天',
         '🏪 便利商店',
@@ -352,6 +387,7 @@ export function parseCommand(raw: string, s: MudState): Command | null {
   if (!text.startsWith('買')) {
     if (text.includes('咖啡')) return { type: 'use', item: 'coffee' };
     if (text.includes('珍奶')) return { type: 'use', item: 'boba' };
+    if (text.includes('濃縮')) return { type: 'use', item: 'espresso' };
     if (text.includes('超級能量飲')) return { type: 'use', item: 'super-energy' };
     if (text.includes('能量飲')) return { type: 'use', item: 'energy' };
     if (text.includes('便當')) return { type: 'use', item: 'bento' };
@@ -411,6 +447,7 @@ export function newCharacter(seed: string, now: Date): MudState {
     room: 'lobby',
     energy: MAX_ENERGY,
     energyDay: taipeiDayIndex(now),
+    energyAt: now.getTime(),
     weapon: null,
     armor: null,
     bag: { coffee: 2 },
@@ -674,6 +711,21 @@ function consumeItem(s: MudState, item: ItemId, out: Block[]): MudState | null {
     out.push(t(`你沒有${ITEMS[item].name}了。`));
     return null;
   }
+  const boost = ITEMS[item].energy;
+  if (boost) {
+    if (s.phase === 'combat') {
+      out.push(t('戰鬥中沒空喝濃縮，先把眼前的事處理完吧。'));
+      return null;
+    }
+    const max = energyMax(s);
+    if (s.energy >= max) {
+      out.push(t('你的精力已經是滿的了，先留著吧。'));
+      return null;
+    }
+    const gain = Math.min(boost, max - s.energy);
+    out.push(t(`你一口氣喝完${ITEMS[item].name}。精力 +${gain}！`, 'success'));
+    return { ...s, energy: s.energy + gain, bag: { ...s.bag, [item]: (s.bag[item] ?? 0) - 1 } };
+  }
   const base = Math.round((ITEMS[item].heal ?? 0) * (perk(s, 5) === 1 ? 1.5 : 1));
   const heal = Math.min(base, s.maxHp - s.hp);
   const verb = item === 'bento' ? '吃了' : '喝了';
@@ -758,6 +810,7 @@ export const mudGame: MoyuGame<MudState> = {
     let s = refreshed.state;
     const out: Block[] = [];
     if (refreshed.refreshed) out.push(t('☀ 新的一天，精力回滿了。', 'muted'));
+    else if (refreshed.regained > 0) out.push(t(`☕ 休息了一下，精力恢復了 ${refreshed.regained} 點。`, 'muted'));
     const rng = new Rng(s.rng);
     const done = (next: MudState, extra: Block[] = []) => reply({ ...next, rng: rng.state }, env, out, extra);
 
@@ -1069,7 +1122,7 @@ export const mudGame: MoyuGame<MudState> = {
           return done(s);
         }
         if (s.energy <= 0) {
-          out.push(t('今天的精力用完了。你在沙發上坐了一下，但沒睡著。明天再來吧。'));
+          out.push(t(outOfEnergy(s, now, '你在沙發上坐了一下，但沒睡著')));
           return done(s);
         }
         s = { ...s, hp: s.maxHp, energy: s.energy - 1 };
@@ -1091,7 +1144,7 @@ export const mudGame: MoyuGame<MudState> = {
           return done(s);
         }
         if (s.energy <= 0) {
-          out.push(t('今天的精力用完了。明天再來吧。'));
+          out.push(t(outOfEnergy(s, now, '現在沒力氣挑戰')));
           return done(s);
         }
         s = { ...s, energy: s.energy - 1, room: boss.arena };
@@ -1106,7 +1159,7 @@ export const mudGame: MoyuGame<MudState> = {
           return done(s);
         }
         if (s.energy <= 0) {
-          out.push(t('今天的精力用完了。茶水間、商店、公告欄還是可以逛，或者明天再來。'));
+          out.push(t(outOfEnergy(s, now, '先去茶水間、商店或公告欄逛逛吧')));
           return done(s);
         }
         s = { ...s, energy: s.energy - 1 };

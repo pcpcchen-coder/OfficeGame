@@ -22,6 +22,7 @@ export type RoomId =
 export type ItemId =
   | 'coffee'
   | 'boba'
+  | 'espresso'
   | 'keyboard'
   | 'laser'
   | 'hoodie'
@@ -82,6 +83,8 @@ export type EnemyId =
   | 'kimatsu';
 
 export const MAX_ENERGY = 20;
+/** 每隔多久自動恢復 1 點精力 */
+export const ENERGY_REGEN_MS = 6 * 60 * 1000;
 export const BOSS_MIN_LEVEL = 4;
 
 export interface ClassDef {
@@ -141,6 +144,8 @@ export interface ItemDef {
   price: number;
   kind: 'consumable' | 'weapon' | 'armor';
   rarity: Rarity;
+  /** 恢復精力（雙份濃縮） */
+  energy?: number;
   /** 打倒前一章 Boss 之後商店才會上架（2 = 第一章 Boss、3 = 第二章 Boss） */
   chapter?: 2 | 3;
   heal?: number;
@@ -152,6 +157,15 @@ export interface ItemDef {
 export const ITEMS: Record<ItemId, ItemDef> = {
   coffee: { id: 'coffee', name: '美式咖啡', price: 10, kind: 'consumable', rarity: 'common', heal: 15, desc: '回復 15 HP。上班族的血液。' },
   boba: { id: 'boba', name: '珍奶', price: 25, kind: 'consumable', rarity: 'common', heal: 35, desc: '回復 35 HP。全糖去冰。' },
+  espresso: {
+    id: 'espresso',
+    name: '雙份濃縮',
+    price: 40,
+    kind: 'consumable',
+    rarity: 'common',
+    energy: 5,
+    desc: '立刻恢復 5 點精力。喝完會覺得自己還可以再巡一層樓。',
+  },
   keyboard: { id: 'keyboard', name: '機械鍵盤', price: 40, kind: 'weapon', rarity: 'common', atk: 3, desc: '攻擊 +3。青軸，敲起來很有氣勢。' },
   laser: { id: 'laser', name: '雷射筆', price: 120, kind: 'weapon', rarity: 'common', atk: 6, desc: '攻擊 +6。簡報時指誰誰就閉嘴。' },
   hoodie: { id: 'hoodie', name: '連帽 T', price: 35, kind: 'armor', rarity: 'common', def: 2, desc: '防禦 +2。帽子一戴，誰都不認識你。' },
@@ -216,6 +230,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
 export const SHOP_ITEMS: ItemId[] = [
   'coffee',
   'boba',
+  'espresso',
   'energy',
   'super-energy',
   'pto',
