@@ -17,8 +17,17 @@ const NORMAL_ICON = `${import.meta.env.BASE_URL}favicon.svg`;
 const BOSS_ICON =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='3' width='16' height='18' rx='2' fill='%2394a3b8'/%3E%3Cpath d='M8 8h8M8 12h8M8 16h5' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E";
 
+/** 網址加上 ?preview 可以提前試玩還沒開放的內容 */
+const PREVIEW = (() => {
+  try {
+    return new URLSearchParams(window.location.search).has('preview');
+  } catch {
+    return false;
+  }
+})();
+
 function ctxOf(save: SaveData): StepContext {
-  return { profile: save.profile, now: new Date() };
+  return { profile: save.profile, now: new Date(), preview: PREVIEW };
 }
 
 function upsert(list: Conversation[], conv: Conversation): Conversation[] {
@@ -94,14 +103,7 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
   const today = taipeiDayIndex(clock);
-  // 網址加上 ?preview 可以提前試玩還沒上線的遊戲
-  const [preview] = useState(() => {
-    try {
-      return new URLSearchParams(window.location.search).has('preview');
-    } catch {
-      return false;
-    }
-  });
+  const preview = PREVIEW;
 
   const bossChat = useMemo(() => {
     const picked = FAKE_CHATS.find((c) => c.id === save.settings.bossChat);

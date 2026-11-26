@@ -1,4 +1,4 @@
-// 主力遊戲 · 《B13 之龍》mo-mud-b13 · 第一章「入職」、第二章「加班」
+// 主力遊戲 · 《B13 之龍》mo-mud-b13 · 第一章「入職」、第二章「加班」、第三章「B13」、終章、二周目
 // 文字 MUD：在雲頂大樓裡移動、巡邏、戰鬥、升級，最終目標是 B13 的龍「季末」。
 // 一則訊息 = 一個動作；戰鬥中關掉也會停在原處。每天 20 點精力，用完就明天再來。
 
@@ -11,6 +11,11 @@ import {
   BOSS_MIN_LEVEL,
   BOSSES,
   CLASSES,
+  CREDITS,
+  ENDINGS,
+  GUARD_LINES_CH3,
+  KPI_CH3,
+  RARE_DROPS_CH3,
   DROP_CHANCE,
   ENEMIES,
   FLOORS,
@@ -30,12 +35,14 @@ import {
   SHOP_ITEMS,
   SKILL_COOLDOWN,
   type ClassId,
+  type EndingKey,
   type EnemyId,
   type FloorDef,
   type ItemId,
   type PerkDef,
   type RoomId,
 } from './data';
+import { isOpen, releaseNote, type ReleaseKey } from './releases';
 
 export interface Combat {
   enemy: EnemyId;
@@ -50,6 +57,16 @@ export interface Combat {
   talked: boolean;
   /** 第二章 Boss 血量過半後暴怒 */
   enraged?: boolean;
+  /** 這場戰鬥的最大 HP（二周目會放大） */
+  maxHp: number;
+  /** 經驗與金錢倍率（二周目） */
+  scale: number;
+  /** 季末的戰鬥階段（1~3） */
+  stage?: number;
+  /** 下一回合被季末吃掉 */
+  skipNext?: boolean;
+  /** 阿桂姨的最後便當已經送到 */
+  auntieUsed?: boolean;
 }
 
 export interface NewsItem {
@@ -58,7 +75,8 @@ export interface NewsItem {
 }
 
 export interface MudState {
-  phase: 'create' | 'explore' | 'combat';
+  /** finale = 打倒季末後選擇結局 */
+  phase: 'create' | 'explore' | 'combat' | 'finale';
   cls: ClassId | null;
   level: number;
   exp: number;
@@ -96,8 +114,20 @@ export function isNight(now: Date): boolean {
   return h >= 19 || h < 7;
 }
 
-export const floorOpen = (f: FloorDef, s: MudState) => f.room !== null && (!f.requires || !!s.flags[f.requires]);
-export const floorLabel = (f: FloorDef, s: MudState) => (floorOpen(f, s) ? f.label : `${f.label.split(' ')[0]} 🔒`);
+/** 時間與預覽模式：決定哪些段落已經開放 */
+export interface Env {
+  now: Date;
+  preview: boolean;
+}
+
+export const opened = (key: ReleaseKey, env: Env) => isOpen(key, env.now, env.preview);
+
+export const floorOpen = (f: FloorDef, s: MudState, env: Env) =>
+  f.room !== null && (!f.requires || !!s.flags[f.requires]) && (!f.release || opened(f.release, env));
+export const floorLabel = (f: FloorDef, s: MudState, env: Env) => (floorOpen(f, s, env) ? f.label : `${f.label.split(' ')[0]} 🔒`);
+
+/** 二周目的強度倍率 */
+export const ngScale = (s: MudState) => 1 + 0.15 * (s.flags.ng ?? 0);
 
 /** 還沒選的天賦（等級最低的那一層） */
 export function pendingPerkTier(s: MudState): 5 | 7 | 9 | null {
@@ -105,8 +135,13 @@ export function pendingPerkTier(s: MudState): 5 | 7 | 9 | null {
   return null;
 }
 
-export function shopItems(s: MudState): ItemId[] {
-  return SHOP_ITEMS.filter((id) => ITEMS[id].chapter !== 2 || !!s.flags.boss1);
+export function shopItems(s: MudState, env: Env): ItemId[] {
+  return SHOP_ITEMS.filter((id) => {
+    const ch = ITEMS[id].chapter;
+    if (ch === 2) return !!s.flags.boss1;
+    if (ch === 3) return !!s.flags.boss2 && opened('ch3', env);
+    return true;
+  });
 }
 export const defOf = (s: MudState) => s.baseDef + (s.armor ? (ITEMS[s.armor].def ?? 0) : 0);
 
@@ -141,13 +176,13 @@ function statusLine(s: MudState, now: Date): Block {
   };
 }
 
-function roomBlock(s: MudState, now: Date): Block {
+function roomBlock(s: MudState, env: Env): Block {
   const r = ROOMS[s.room];
-  const night = isNight(now);
+  const night = isNight(env.now);
   const exits = s.room === 'store' ? '出口：大廳' : s.room === 'elevator' ? '出口：選擇樓層' : '出口：電梯';
   const lines = [`【${r.title}】`, ...r.desc];
   if (night && r.nightDesc) lines.push(`🌙 ${r.nightDesc}`);
-  if (s.room === 'elevator') lines.push(`按鈕：${FLOORS.map((f) => floorLabel(f, s)).join(' · ')}`);
+  if (s.room === 'elevator') lines.push(`按鈕：${FLOORS.map((f) => floorLabel(f, s, env)).join(' · ')}`);
   lines.push(exits);
   if (r.enemies) {
     const pool = [...r.enemies, ...(night ? (r.nightEnemies ?? []) : [])];
@@ -170,6 +205,8 @@ function sheetBlock(s: MudState): Block {
     `${pad(`金錢  ${s.gold}`, 22)}精力  ${s.energy}/${energyMax(s)}`,
     `${pad(`技能  ${c.skill}`, 22)}碎片  ${s.fragments}/3`,
   ];
+  const endings = (Object.keys(ENDINGS) as EndingKey[]).filter((k) => s.flags[`end_${k}`]).length;
+  if (endings || s.flags.ng) rows.push(`${pad(`結局  ${endings}/${Object.keys(ENDINGS).length}`, 22)}周目  ${(s.flags.ng ?? 0) + 1}`);
   const perks = PERK_TIERS.map((tier) => PERKS.find((p) => p.tier === tier && p.choice === perk(s, tier))?.name).filter(Boolean);
   if (perks.length) rows.push(`天賦  ${perks.join('、')}`);
   const quests: string[] = [];
@@ -183,6 +220,7 @@ function sheetBlock(s: MudState): Block {
 function combatBlock(s: MudState): Block {
   const c = s.combat!;
   const e = ENEMIES[c.enemy];
+  const stage = c.enemy === 'kimatsu' ? `  第 ${c.stage ?? 1} 階段` : '';
   const bar = (v: number, max: number) => {
     const n = Math.min(12, Math.max(0, Math.round((v / max) * 12)));
     return '█'.repeat(n) + '░'.repeat(12 - n);
@@ -191,12 +229,12 @@ function combatBlock(s: MudState): Block {
     kind: 'code',
     lang: 'battle',
     text: [
-      `${e.name}`,
-      `HP ${bar(c.hp, e.hp)} ${Math.max(0, c.hp)}/${e.hp}${c.stun > 0 ? '  (愣住)' : ''}`,
+      `${e.name}${stage}`,
+      `HP ${bar(c.hp, c.maxHp)} ${Math.max(0, c.hp)}/${c.maxHp}${c.stun > 0 ? '  (愣住)' : ''}`,
       '',
       `你（${CLASSES[s.cls!].name}）`,
       `HP ${bar(s.hp, s.maxHp)} ${s.hp}/${s.maxHp}`,
-      `回合 ${c.turn}  技能 ${s.skillCd > 0 ? `冷卻 ${s.skillCd}` : '可用'}`,
+      `回合 ${c.turn}  技能 ${s.skillCd > 0 ? `冷卻 ${s.skillCd}` : '可用'}${c.skipNext ? '  ⚠ 下一回合會被吃掉' : ''}`,
     ].join('\n'),
   };
 }
@@ -209,6 +247,7 @@ function consumableButtons(s: MudState): string[] {
   if ((s.bag.boba ?? 0) > 0) out.push(`🧋 喝珍奶（${s.bag.boba}）`);
   if ((s.bag.energy ?? 0) > 0) out.push(`⚡ 喝能量飲（${s.bag.energy}）`);
   if ((s.bag.bento ?? 0) > 0) out.push(`🍱 吃愛心便當（${s.bag.bento}）`);
+  if ((s.bag['super-energy'] ?? 0) > 0) out.push(`🥫 喝超級能量飲（${s.bag['super-energy']}）`);
   return out;
 }
 
@@ -218,29 +257,49 @@ function perkButtons(s: MudState): string[] {
   return PERKS.filter((p) => p.tier === tier).map((p) => `🌱 天賦：${p.name}`);
 }
 
-export function suggestions(s: MudState): string[] {
+export function endingChoices(s: MudState): EndingKey[] {
+  return (Object.keys(ENDINGS) as EndingKey[]).filter((k) => !('requires' in ENDINGS[k]) || s.flags.qKpi === 2);
+}
+
+export function suggestions(s: MudState, env: Env): string[] {
   if (s.phase === 'create') return ['💻 工程師', '📞 業務', '🎨 設計師'];
+  if (s.phase === 'finale') return endingChoices(s).map((k) => ENDINGS[k].choice);
   if (s.phase === 'combat') {
     const c = CLASSES[s.cls!];
     return ['⚔️ 攻擊', s.skillCd > 0 ? `✨ ${c.skill}（冷卻 ${s.skillCd}）` : `✨ ${c.skill}`, ...consumableButtons(s), '🏃 逃跑'];
   }
   const hurt = s.hp < s.maxHp ? consumableButtons(s) : [];
   const perks = perkButtons(s);
+  const boss = BOSSES.find((b) => b.room === s.room && b.room !== 'meeting' && b.room !== 'exec');
   switch (s.room) {
     case 'lobby':
-      return [...perks, '📰 公告欄', '💬 跟保全大叔聊天', '🏪 便利商店', '🛗 搭電梯', '📋 狀態'];
+      return [
+        ...perks,
+        ...(s.flags.cleared && opened('ngplus', env) ? ['🔁 轉職（二周目）'] : []),
+        '📰 公告欄',
+        '💬 跟保全大叔聊天',
+        '🏪 便利商店',
+        '🛗 搭電梯',
+        '📋 狀態',
+      ];
     case 'store':
-      return [...shopItems(s).map((id) => `買 ${ITEMS[id].name}（${ITEMS[id].price}）`), '🚪 回大廳'];
+      return [...shopItems(s, env).map((id) => `買 ${ITEMS[id].name}（${ITEMS[id].price}）`), '🚪 回大廳'];
     case 'pantry':
       return [...perks, '😴 休息（1 精力）', '💬 跟阿桂姨聊天', ...hurt, '🛗 搭電梯', '📋 狀態'];
     case 'elevator':
-      return FLOORS.map((f) => floorLabel(f, s));
+      return FLOORS.map((f) => floorLabel(f, s, env));
     case 'meeting':
       return [...perks, '⚔️ 巡邏', '🚪 進入大會議室', ...hurt, '🛗 搭電梯', '📋 狀態'];
     case 'it':
       return [...perks, '⚔️ 巡邏', '💬 跟 KPI-9000 說話', ...hurt, '🛗 搭電梯', '📋 狀態'];
     case 'exec':
       return [...perks, '🚪 敲董事長室的門', ...hurt, '🛗 搭電梯', '📋 狀態'];
+    case 'b13':
+      return [...perks, '🐉 喚醒季末', ...hurt, '🛗 搭電梯', '📋 狀態'];
+    case 'b-parking':
+    case 'b-archive':
+    case 'b-server':
+      return [...perks, '⚔️ 巡邏', boss!.button, ...hurt, '🛗 搭電梯', '📋 狀態'];
     default:
       return [...perks, '⚔️ 巡邏', ...hurt, '🛗 搭電梯', '👀 看看四周', '📋 狀態'];
   }
@@ -259,6 +318,8 @@ export type Command =
   | { type: 'talk-guard' }
   | { type: 'talk-auntie' }
   | { type: 'talk-kpi' }
+  | { type: 'ending'; key: EndingKey }
+  | { type: 'ngplus' }
   | { type: 'perk'; perk: PerkDef }
   | { type: 'store' }
   | { type: 'buy'; item: ItemId }
@@ -273,6 +334,10 @@ export type Command =
 export function parseCommand(raw: string, s: MudState): Command | null {
   const text = raw.trim();
   const low = text.toLowerCase();
+  if (s.phase === 'finale') {
+    const key = endingChoices(s).find((k) => text === ENDINGS[k].choice || text.includes(ENDINGS[k].choice.slice(2)));
+    return key ? { type: 'ending', key } : null;
+  }
   if (s.phase === 'create') {
     if (text.includes('工程師') || low === 'engineer') return { type: 'class', cls: 'engineer' };
     if (text.includes('業務') || low === 'sales') return { type: 'class', cls: 'sales' };
@@ -287,6 +352,7 @@ export function parseCommand(raw: string, s: MudState): Command | null {
   if (!text.startsWith('買')) {
     if (text.includes('咖啡')) return { type: 'use', item: 'coffee' };
     if (text.includes('珍奶')) return { type: 'use', item: 'boba' };
+    if (text.includes('超級能量飲')) return { type: 'use', item: 'super-energy' };
     if (text.includes('能量飲')) return { type: 'use', item: 'energy' };
     if (text.includes('便當')) return { type: 'use', item: 'bento' };
   }
@@ -306,7 +372,7 @@ export function parseCommand(raw: string, s: MudState): Command | null {
     return text === f.label || text.toUpperCase() === key || text.toUpperCase().startsWith(key + ' ');
   });
   if (s.room === 'elevator' && floor >= 0) return { type: 'floor', index: floor };
-  if (/^go\s+(b13|\d+f?)$/i.test(low)) {
+  if (/^go\s+(b\d+|\d+f?)$/i.test(low)) {
     const target = low.replace(/^go\s+/, '').toUpperCase().replace(/^(\d+)$/, '$1F');
     const i = FLOORS.findIndex((f) => f.label.split(' ')[0] === target);
     if (i >= 0) return { type: 'floor', index: i };
@@ -322,7 +388,10 @@ export function parseCommand(raw: string, s: MudState): Command | null {
   if (text.includes('便利商店') || low === 'shop') return { type: 'store' };
   if (text.includes('回大廳')) return { type: 'leave-store' };
   if (text.includes('休息') || low === 'rest') return { type: 'rest' };
-  if (text.includes('大會議室') || text.includes('董事長室的門') || low === 'boss') return { type: 'boss' };
+  if (BOSSES.some((b) => text === b.button || text.includes(b.button.slice(2))) || text.includes('大會議室') || low === 'boss') {
+    return { type: 'boss' };
+  }
+  if (text.includes('轉職') || text.includes('二周目')) return { type: 'ngplus' };
   return null;
 }
 
@@ -377,20 +446,26 @@ function gainExp(s: MudState, exp: number, out: Block[], now: Date): MudState {
 
 function startCombat(s: MudState, enemy: EnemyId): MudState {
   const e = ENEMIES[enemy];
-  return { ...s, phase: 'combat', combat: { enemy, hp: e.hp, atk: e.atk, turn: 1, stun: 0, dodge: false, talked: false } };
+  const scale = ngScale(s);
+  const hp = Math.round(e.hp * scale);
+  return {
+    ...s,
+    phase: 'combat',
+    combat: { enemy, hp, maxHp: hp, atk: Math.round(e.atk * scale), scale, turn: 1, stun: 0, dodge: false, talked: false, stage: 1 },
+  };
 }
 
 /** Boss 的特殊行動 */
-function bossAction(s: MudState, c: Combat, out: Block[]): MudState {
-  const e = ENEMIES[c.enemy];
+function bossAction(s: MudState, c: Combat, rng: Rng, out: Block[]): MudState {
+  let next = s;
   if (c.enemy === 'weekly-meeting' && c.turn % 3 === 0) {
-    const heal = Math.min(10, e.hp - c.hp);
+    const heal = Math.min(10, c.maxHp - c.hp);
     c.hp += heal;
     c.atk += 1;
     out.push(t(`⏰ 週會宣布「再延長 10 分鐘」！它回復了 ${heal} HP，攻擊力變成 ${c.atk}。`, 'warn'));
   }
   if (c.enemy === 'airdrop-project') {
-    if (!c.enraged && c.hp <= e.hp / 2) {
+    if (!c.enraged && c.hp <= c.maxHp / 2) {
       c.enraged = true;
       c.atk += 3;
       out.push(t(`📞 專案接到一通電話：「老闆說明天早上就要。」它暴怒了！攻擊力變成 ${c.atk}。`, 'warn'));
@@ -398,17 +473,49 @@ function bossAction(s: MudState, c: Combat, out: Block[]): MudState {
     if (c.turn % 4 === 0) {
       c.atk += 2;
       out.push(t(`📝「需求變更」！專案多了三個新功能，攻擊力變成 ${c.atk}。你的技能被打斷，要重新冷卻。`, 'warn'));
-      return { ...s, skillCd: Math.max(s.skillCd, skillCooldown(s) + 1) };
+      next = { ...next, skillCd: Math.max(next.skillCd, skillCooldown(next) + 1) };
     }
   }
-  return s;
+  if (c.enemy === 'kimatsu') {
+    const ratio = c.hp / c.maxHp;
+    const stage = ratio > 2 / 3 ? 1 : ratio > 1 / 3 ? 2 : 3;
+    if (stage > (c.stage ?? 1)) {
+      c.stage = stage;
+      if (stage === 2) out.push(t('🐉 第二階段「吞噬週末」：季末張開嘴巴，開始吸走周圍的時間。小心，牠會吃掉你的回合！', 'warn'));
+      if (stage === 3) {
+        c.atk += 4;
+        out.push(t(`🐉 第三階段「年終結算」：季末全身亮起紅色的數字，攻擊力暴增到 ${c.atk}！`, 'warn'));
+        if (next.flags.qKpi === 2) out.push(t('📡 喇叭裡傳來 KPI-9000 的聲音：「偵測到你在 B13。啟動遠端支援。」', 'success'));
+      }
+    }
+    if ((c.stage ?? 1) >= 2 && !c.skipNext && rng.chance(0.25)) {
+      if ((next.bag.pto ?? 0) > 0) {
+        next = { ...next, bag: { ...next.bag, pto: (next.bag.pto ?? 0) - 1 } };
+        out.push(t('季末朝你的行事曆咬下去——你亮出一張特休假單！牠咬了個空。（特休假單 -1）', 'success'));
+      } else {
+        c.skipNext = true;
+        out.push(t('季末一口吞掉了你的週末。你的下一回合會被吃掉！', 'warn'));
+      }
+    }
+    if ((c.stage ?? 1) === 3 && next.flags.qKpi === 2) {
+      c.hp -= 15;
+      out.push(t('KPI-9000 的防火牆從天花板射出一道光，對季末造成 15 點傷害。'));
+    }
+    if ((c.stage ?? 1) === 3 && next.flags.qThermos === 3 && !c.auntieUsed && next.hp < next.maxHp * 0.4) {
+      c.auntieUsed = true;
+      next = { ...next, hp: next.maxHp };
+      out.push(t('🍱 樓梯間傳來腳步聲。阿桂姨喘著氣衝進來：「你這孩子，餓著肚子怎麼打！」她塞給你一個便當。HP 回滿！', 'success'));
+    }
+  }
+  return next;
 }
 
 function enemyTurn(s: MudState, rng: Rng, out: Block[]): MudState {
   const c = { ...s.combat! };
   const e = ENEMIES[c.enemy];
   let next = s;
-  if (e.boss) next = bossAction(next, c, out);
+  if (e.boss) next = bossAction(next, c, rng, out);
+  if (c.hp <= 0) return { ...next, combat: c };
   if (c.stun > 0) {
     c.stun -= 1;
     out.push(t(`${e.name}還愣在那裡，不知道該說什麼。`, 'muted'));
@@ -441,15 +548,20 @@ function receiveGear(s: MudState, item: ItemId, out: Block[]): MudState {
   return { ...s, gold: s.gold + value };
 }
 
-function winCombat(s: MudState, rng: Rng, out: Block[], now: Date): MudState {
+const CH2_ROOMS: RoomId[] = ['mkt', 'fin', 'legal', 'it'];
+const CH3_ROOMS: RoomId[] = ['b-parking', 'b-archive', 'b-server'];
+
+function winCombat(s: MudState, rng: Rng, out: Block[], env: Env): MudState {
+  const now = env.now;
   const c = s.combat!;
   const e = ENEMIES[c.enemy];
-  const mult = (c.talked ? 1.5 : 1) * (perk(s, 9) === 2 ? 1.3 : 1);
+  const mult = (c.talked ? 1.5 : 1) * (perk(s, 9) === 2 ? 1.3 : 1) * c.scale;
   const gold = Math.round(e.gold * mult);
-  out.push(t(e.defeat), t(`✓ 打倒了${e.name}！獲得 ${e.exp} EXP、💰 ${gold}${c.talked ? '（話術加成）' : ''}。`, 'success'));
+  const exp = Math.round(e.exp * c.scale);
+  out.push(t(e.defeat), t(`✓ 打倒了${e.name}！獲得 ${exp} EXP、💰 ${gold}${c.talked ? '（話術加成）' : ''}。`, 'success'));
   let next: MudState = { ...s, phase: 'explore', combat: null, skillCd: 0, gold: s.gold + gold };
   next = addNews(next, now, `打倒了「${e.name}」`);
-  next = gainExp(next, e.exp, out, now);
+  next = gainExp(next, exp, out, now);
 
   // KPI-9000 的稽核任務
   const audited = [...(ROOMS.legal.enemies ?? []), ...(ROOMS.legal.nightEnemies ?? []), ...(ROOMS.it.enemies ?? []), ...(ROOMS.it.nightEnemies ?? [])];
@@ -459,33 +571,62 @@ function winCombat(s: MudState, rng: Rng, out: Block[], now: Date): MudState {
     out.push(t(kills >= KPI_QUEST_KILLS ? `稽核完成 ${KPI_QUEST_KILLS}/${KPI_QUEST_KILLS}。回 11F 找 KPI-9000 回報吧。` : `稽核進度 ${kills}/${KPI_QUEST_KILLS}。`, 'muted'));
   }
 
-  // 第二章的稀有掉落
-  const isCh2 = !e.boss && ['mkt', 'fin', 'legal', 'it'].includes(s.room);
-  if (isCh2 && rng.chance(e.night ? DROP_CHANCE * 2 : DROP_CHANCE)) {
-    const drop = rng.pick(RARE_DROPS);
+  // 稀有掉落
+  const pool = !e.boss && CH2_ROOMS.includes(s.room) ? RARE_DROPS : !e.boss && CH3_ROOMS.includes(s.room) ? RARE_DROPS_CH3 : null;
+  if (pool && rng.chance(e.night ? DROP_CHANCE * 2 : DROP_CHANCE)) {
+    const drop = rng.pick(pool);
     out.push(t(`✨ ${e.name}掉下了一件閃閃發光的東西：${itemLabel(drop)}！`, 'success'));
     next = addNews(next, now, `撿到了稀有裝備「${ITEMS[drop].name}」`);
     next = receiveGear(next, drop, out);
   }
 
-  if (c.enemy === 'weekly-meeting' && !next.flags.boss1) {
-    next = { ...next, fragments: next.fragments + 1, flags: { ...next.flags, boss1: 1, ch2intro: 1 } };
-    next = addNews(next, now, '終結了無限延長的週會，取得權限卡碎片');
-    out.push(
-      t('白板背面貼著一張卡片，上面印著「B13 · 1/3」。你取得了第一片權限卡碎片！', 'success'),
-      t('稱號解鎖：「會議終結者」。', 'muted'),
-      t('🎉 第一章《入職》完成！'),
-      ...chapterTwoIntro(),
-    );
-  }
-  if (c.enemy === 'airdrop-project' && !next.flags.boss2) {
-    next = { ...next, fragments: next.fragments + 1, flags: { ...next.flags, boss2: 1 } };
-    next = addNews(next, now, '讓凌晨兩點的空降專案結案，取得第二片權限卡碎片');
-    out.push(
-      t('灰燼裡的卡片印著「B13 · 2/3」。你取得了第二片權限卡碎片！', 'success'),
-      t('稱號解鎖：「準時下班的人」。董事長室的燈，第一次熄滅了。', 'muted'),
-      t('🎉 第二章《加班》完成！KPI-9000 說，第三片碎片在季末的肚子裡。第三章《B13》正在施工中，你可以繼續在各樓層練功、收集稀有裝備。'),
-    );
+  const boss = BOSSES.find((b) => b.enemy === c.enemy);
+  if (boss && !next.flags[boss.flag]) {
+    next = { ...next, flags: { ...next.flags, [boss.flag]: 1 } };
+    if (boss.flag === 'boss1') {
+      next = { ...next, fragments: next.fragments + 1, flags: { ...next.flags, ch2intro: 1 } };
+      next = addNews(next, now, '終結了無限延長的週會，取得權限卡碎片');
+      out.push(
+        t('白板背面貼著一張卡片，上面印著「B13 · 1/3」。你取得了第一片權限卡碎片！', 'success'),
+        t('稱號解鎖：「會議終結者」。', 'muted'),
+        t('🎉 第一章《入職》完成！'),
+        ...chapterTwoIntro(),
+      );
+    } else if (boss.flag === 'boss2') {
+      next = { ...next, fragments: next.fragments + 1 };
+      next = addNews(next, now, '讓凌晨兩點的空降專案結案，取得第二片權限卡碎片');
+      out.push(
+        t('灰燼裡的卡片印著「B13 · 2/3」。你取得了第二片權限卡碎片！', 'success'),
+        t('稱號解鎖：「準時下班的人」。董事長室的燈，第一次熄滅了。', 'muted'),
+        t('🎉 第二章《加班》完成！'),
+      );
+      if (opened('ch3', env)) {
+        next = { ...next, flags: { ...next.flags, ch3intro: 1 } };
+        out.push(...chapterThreeIntro());
+      } else {
+        out.push(t(`KPI-9000 說，第三片碎片在季末的肚子裡。${releaseNote('ch3')}，你可以繼續在各樓層練功、收集稀有裝備。`, 'muted'));
+      }
+    } else if (boss.flag === 'mb1') {
+      next = addNews(next, now, '打倒了 B4 的拖吊車之王');
+      out.push(t('🔓 電梯的 B5 檔案室解鎖了。', 'success'));
+    } else if (boss.flag === 'mb2') {
+      next = addNews(next, now, '讓 B8 的檔案管理員安息');
+      out.push(t('🔓 電梯的 B9 舊機房解鎖了。', 'success'));
+    } else if (boss.flag === 'mb3') {
+      next = addNews(next, now, '關掉了 B12 的大型主機');
+      out.push(
+        t('🔓 電梯的 B13 按鈕亮了。', 'success'),
+        t(opened('finale', env) ? '你感覺到腳下傳來巨大的呼吸聲。季末，就在下面。' : `腳下傳來巨大的呼吸聲……${releaseNote('finale')}。`, 'muted'),
+      );
+    } else if (boss.flag === 'dragon') {
+      next = { ...next, fragments: 3, phase: 'finale' };
+      next = addNews(next, now, '在 B13 打倒了季末');
+      out.push(
+        t('卡片上印著「B13 · 3/3」。三片權限卡碎片在你手中拼成了一張完整的卡。', 'success'),
+        t('季末趴在地上，喘著氣。牠看著你，眼神裡沒有憤怒，只有疲憊。', 'muted'),
+        t('你要怎麼做？'),
+      );
+    }
   }
   return next;
 }
@@ -496,6 +637,15 @@ function chapterTwoIntro(): Block[] {
     t('電梯的 8F 到 12F 按鈕同時亮了起來。'),
     t('8 樓以上的燈，從來沒有在晚上關過。那些樓層的人都在加班——或者說，曾經是人。保全大叔說，第二片碎片在 12 樓的董事長室。'),
     t('新內容：8F~11F 四個新樓層、晚上 7 點到早上 7 點才會出現的夜間怪物、Lv5/7/9 的天賦、阿桂姨和 KPI-9000 的任務、便利商店的新商品，以及只會從怪物身上掉落的★稀有裝備。', 'muted'),
+  ];
+}
+
+function chapterThreeIntro(): Block[] {
+  return [
+    { kind: 'heading', text: '第三章《B13》' },
+    t('你手上有兩片碎片。第三片，在季末的肚子裡。'),
+    t('去 11F 找 KPI-9000 吧。它說它有辦法讓你下到地下樓層。'),
+    t('新內容：B1~B12 三個地下區域、三隻守關 Boss、便利商店的新商品（超級能量飲、特休假單、三螢幕工作站、人體工學椅），以及地下樓層才會掉落的★稀有裝備。', 'muted'),
   ];
 }
 
@@ -531,19 +681,29 @@ function consumeItem(s: MudState, item: ItemId, out: Block[]): MudState | null {
   return { ...s, hp: s.hp + heal, bag: { ...s.bag, [item]: (s.bag[item] ?? 0) - 1 } };
 }
 
-function reply(s: MudState, now: Date, blocks: Block[], extra: Block[] = []): StepResult<MudState> {
-  const replies: Reply[] = [[...blocks, ...extra, ...(s.cls ? [statusLine(s, now)] : [])]];
-  return { state: s, replies, suggestions: suggestions(s) };
+function reply(s: MudState, env: Env, blocks: Block[], extra: Block[] = []): StepResult<MudState> {
+  const replies: Reply[] = [[...blocks, ...extra, ...(s.cls ? [statusLine(s, env.now)] : [])]];
+  return { state: s, replies, suggestions: suggestions(s, env) };
 }
 
 function enterRoom(s: MudState, room: RoomId): MudState {
   return { ...s, room };
 }
 
+/** 二周目：保留結局與周目數，其他從頭開始 */
+export function newGamePlus(s: MudState, now: Date): MudState {
+  const keep: Record<string, number> = { ng: (s.flags.ng ?? 0) + 1 };
+  for (const k of Object.keys(ENDINGS)) if (s.flags[`end_${k}`]) keep[`end_${k}`] = 1;
+  const fresh = newCharacter(`ng-${now.getTime()}`, now);
+  return { ...fresh, gold: 200, flags: keep, news: s.news };
+}
+
+const envOf = (ctx: StepContext): Env => ({ now: ctx.now, preview: !!ctx.preview });
+
 export const mudGame: MoyuGame<MudState> = {
   id: 'mo-mud',
   modelName: 'mo-mud-b13',
-  description: '★ 主線 · B13 之龍：文字 MUD 冒險（第一、二章）',
+  description: '★ 主線 · B13 之龍：文字 MUD 冒險',
   available: true,
 
   seedFor() {
@@ -575,7 +735,7 @@ export const mudGame: MoyuGame<MudState> = {
           t('每天有 20 點精力，巡邏一次扣 1 點。補血、逛商店、看公告欄都不用精力。指令也可以打英文：look、stat、go 3、attack。', 'muted'),
         ],
       ],
-      suggestions: suggestions(s),
+      suggestions: suggestions(s, envOf(ctx)),
     };
   },
 
@@ -583,47 +743,84 @@ export const mudGame: MoyuGame<MudState> = {
     if (parseCommand(text, state)) return null;
     if (state.phase === 'create') return '請先選一個職業：工程師、業務或設計師。';
     if (state.phase === 'combat') return '戰鬥中只能攻擊、用技能、喝咖啡或逃跑。';
+    if (state.phase === 'finale') return '請從下面的選項中選一個。';
     return '這裡看不懂這個指令。用下面的按鈕，或試試 look、stat、go 3。';
   },
 
   step(prev, input, ctx: StepContext) {
-    if (input.type !== 'text') return { state: prev, replies: [], suggestions: suggestions(prev) };
+    const env = envOf(ctx);
+    if (input.type !== 'text') return { state: prev, replies: [], suggestions: suggestions(prev, env) };
     const now = ctx.now;
     const cmd = parseCommand(input.text, prev);
-    if (!cmd) return { state: prev, replies: [], suggestions: suggestions(prev) };
+    if (!cmd) return { state: prev, replies: [], suggestions: suggestions(prev, env) };
 
     const refreshed = refreshEnergy(prev, now);
     let s = refreshed.state;
     const out: Block[] = [];
     if (refreshed.refreshed) out.push(t('☀ 新的一天，精力回滿了。', 'muted'));
     const rng = new Rng(s.rng);
-    const done = (next: MudState, extra: Block[] = []) => reply({ ...next, rng: rng.state }, now, out, extra);
+    const done = (next: MudState, extra: Block[] = []) => reply({ ...next, rng: rng.state }, env, out, extra);
 
     // 建立角色
     if (cmd.type === 'class') {
       const c = CLASSES[cmd.cls];
       s = { ...s, phase: 'explore', cls: cmd.cls, hp: c.hp, maxHp: c.hp, baseAtk: c.atk, baseDef: c.def };
-      s = addNews(s, now, `以${c.name}的身分到職`);
+      s = addNews(s, now, `以${c.name}的身分到職${s.flags.ng ? `（第 ${s.flags.ng + 1} 周目）` : ''}`);
       out.push(t(`你在人資系統上勾選了「${c.name}」。${c.desc}`), t('保全大叔把員工證遞給你：「歡迎。電梯那顆 B13 不要亂按。」'));
-      return done(s, [roomBlock(s, now)]);
+      if (s.flags.ng) out.push(t(`第 ${s.flags.ng + 1} 周目：怪物變強 ${s.flags.ng * 15}%，經驗與金錢也增加 ${s.flags.ng * 15}%。你帶著 💰 200 重新開始。`, 'muted'));
+      return done(s, [roomBlock(s, env)]);
     }
 
-    // 已經打完第一章、但還沒看過第二章開場的舊存檔
+    // 選擇結局
+    if (cmd.type === 'ending') {
+      const ending = ENDINGS[cmd.key];
+      s = { ...s, phase: 'explore', flags: { ...s.flags, cleared: 1, [`end_${cmd.key}`]: 1 } };
+      s = addNews(s, now, `迎來了「${ending.title}」`);
+      const count = (Object.keys(ENDINGS) as EndingKey[]).filter((k) => s.flags[`end_${k}`]).length;
+      const card = [
+        `mo-mud-b13 · ${CLASSES[s.cls!].name} Lv${s.level}${s.flags.ng ? ` · ${s.flags.ng + 1} 周目` : ''}`,
+        `${ending.title}`,
+        `結局收集 ${count}/${Object.keys(ENDINGS).length}`,
+      ].join('\n');
+      return done(s, [
+        { kind: 'heading', text: ending.title },
+        ...ending.text.map((x) => t(x)),
+        { kind: 'code', lang: 'credits', text: CREDITS.join('\n') },
+        { kind: 'share', text: card },
+        t(
+          `🎉 恭喜通關！結局收集 ${count}/${Object.keys(ENDINGS).length}。${
+            opened('ngplus', env) ? '回到 1F 大廳可以「轉職」開始二周目，用不同的選擇看看其他結局。' : `${releaseNote('ngplus')}，到時候可以轉職重來，看看其他結局。`
+          }`,
+          'muted',
+        ),
+      ]);
+    }
+
+    // 舊存檔補播章節開場
     if (s.phase === 'explore' && s.flags.boss1 && !s.flags.ch2intro) {
       out.push(...chapterTwoIntro());
       s = { ...s, flags: { ...s.flags, ch2intro: 1 } };
+    }
+    if (s.phase === 'explore' && s.flags.boss2 && !s.flags.ch3intro && opened('ch3', env)) {
+      out.push(...chapterThreeIntro());
+      s = { ...s, flags: { ...s.flags, ch3intro: 1 } };
     }
 
     // 戰鬥
     if (s.phase === 'combat' && s.combat) {
       const e = ENEMIES[s.combat.enemy];
-      if (cmd.type === 'flee') {
+      if (s.combat.skipNext) {
+        // 這一回合被季末吃掉了
+        out.push(t('你想行動，卻發現這段時間已經不見了。這一回合被季末吃掉了。', 'warn'));
+        s = { ...s, combat: { ...s.combat, skipNext: false } };
+        s = enemyTurn(s, rng, out);
+      } else if (cmd.type === 'flee') {
         const chance = e.boss ? 0.3 : 0.6;
         if (rng.chance(chance)) {
           out.push(t('你說了一句「我先去處理一下別的事」，成功脫身。'));
           const room = BOSSES.find((b) => b.arena === s.room && b.enemy === e.id)?.room ?? s.room;
           s = { ...s, phase: 'explore', combat: null, skillCd: 0, room };
-          return done(s, [roomBlock(s, now)]);
+          return done(s, [roomBlock(s, env)]);
         }
         out.push(t('你想溜，但被叫住了：「欸，你先別走。」'));
         s = enemyTurn(s, rng, out);
@@ -664,27 +861,51 @@ export const mudGame: MoyuGame<MudState> = {
         if (c.hp > 0) s = enemyTurn(s, rng, out);
       }
       if (s.combat && s.combat.hp <= 0) {
-        s = winCombat(s, rng, out, now);
+        s = winCombat(s, rng, out, env);
         const boss = BOSSES.find((b) => b.arena === s.room && b.arena !== b.room);
         if (boss) s = enterRoom(s, boss.room);
-        return done(s, [roomBlock(s, now)]);
+        return done(s, s.phase === 'finale' ? [] : [roomBlock(s, env)]);
       }
       if (s.hp <= 0) {
         s = loseCombat(s, out, now);
-        return done(s, [roomBlock(s, now)]);
+        return done(s, [roomBlock(s, env)]);
       }
       return done(s, [combatBlock(s)]);
     }
 
+    if (s.phase !== 'explore') return done(s);
+
     // 探索
     switch (cmd.type) {
       case 'look':
-        return done(s, [roomBlock(s, now)]);
+        return done(s, [roomBlock(s, env)]);
       case 'status':
         return done(s, [sheetBlock(s)]);
       case 'use': {
         const used = consumeItem(s, cmd.item, out);
         return done(used ?? s);
+      }
+      case 'ngplus': {
+        if (s.room !== 'lobby') {
+          out.push(t('轉職要到 1F 大廳的人資櫃台辦理。'));
+          return done(s);
+        }
+        if (!s.flags.cleared) {
+          out.push(t('人資 Lisa-bot：「轉職需要先完成目前的職涯喔。」（打倒季末後開放）'));
+          return done(s);
+        }
+        if (!opened('ngplus', env)) {
+          out.push(t(`人資 Lisa-bot：「轉職制度還在規劃中。」（${releaseNote('ngplus')}）`));
+          return done(s);
+        }
+        s = newGamePlus(s, now);
+        out.push(
+          { kind: 'heading', text: `第 ${(s.flags.ng ?? 0) + 1} 周目` },
+          t('你在人資系統上按下「轉職」。一切重新開始，但你記得所有的事。'),
+          t('季末好像也記得你。這一次，所有的怪物都更強了。', 'muted'),
+          t('選一個職業吧：'),
+        );
+        return done(s);
       }
       case 'perk': {
         const tier = pendingPerkTier(s);
@@ -703,16 +924,17 @@ export const mudGame: MoyuGame<MudState> = {
       case 'elevator':
         s = enterRoom(s, 'elevator');
         out.push(t('叮。電梯門打開了。'));
-        return done(s, [roomBlock(s, now)]);
+        return done(s, [roomBlock(s, env)]);
       case 'floor': {
         const f = FLOORS[cmd.index];
-        if (!floorOpen(f, s)) {
-          out.push(t(f.locked!));
+        if (!floorOpen(f, s, env)) {
+          const gated = f.release && !opened(f.release, env) && (!f.requires || s.flags[f.requires]);
+          out.push(t(gated ? `${f.label.split(' ')[0]} 的按鈕貼著一張紙：「${releaseNote(f.release!)}」。` : f.locked!));
           return done(s.room === 'elevator' ? s : enterRoom(s, 'elevator'));
         }
         s = enterRoom(s, f.room!);
         out.push(t(`叮。${f.label}到了。`));
-        return done(s, [roomBlock(s, now)]);
+        return done(s, [roomBlock(s, env)]);
       }
       case 'news': {
         if (s.room !== 'lobby') {
@@ -729,8 +951,8 @@ export const mudGame: MoyuGame<MudState> = {
           out.push(t('保全大叔在 1F 大廳。'));
           return done(s);
         }
-        const lines = s.flags.boss1 ? GUARD_LINES_CH2 : GUARD_LINES;
-        const key = s.flags.boss1 ? 'guard2' : 'guard';
+        const [lines, key] =
+          s.flags.boss2 && opened('ch3', env) ? [GUARD_LINES_CH3, 'guard3'] : s.flags.boss1 ? [GUARD_LINES_CH2, 'guard2'] : [GUARD_LINES, 'guard'];
         const n = s.flags[key] ?? 0;
         out.push(t(lines[n % lines.length]));
         return done({ ...s, flags: { ...s.flags, [key]: n + 1 } });
@@ -763,6 +985,16 @@ export const mudGame: MoyuGame<MudState> = {
           out.push(t('KPI-9000 的終端機在 11F 資訊部。'));
           return done(s);
         }
+        // 第二章 Boss 之後：臨時權限卡
+        if (s.flags.boss2 && !s.flags.card) {
+          if (!opened('ch3', env)) {
+            out.push(t(KPI_CH3.locked));
+            return done(s);
+          }
+          out.push(...KPI_CH3.card.map((l) => t(l)), t('🔓 取得臨時權限卡。電梯的 B1 停車場解鎖了。', 'success'));
+          s = { ...s, flags: { ...s.flags, card: 1 } };
+          return done(addNews(s, now, '從 KPI-9000 那裡拿到了臨時權限卡'));
+        }
         const q = s.flags.qKpi ?? 0;
         if (q === 0) {
           out.push(...KPI_LINES.intro.map((l) => t(l)), t(`📌 任務開始：在 10F、11F 打倒 ${KPI_QUEST_KILLS} 個異常程序。`, 'muted'));
@@ -789,24 +1021,24 @@ export const mudGame: MoyuGame<MudState> = {
         }
         s = enterRoom(s, 'store');
         return done(s, [
-          roomBlock(s, now),
+          roomBlock(s, env),
           {
             kind: 'table',
             headers: ['商品', '價格', '效果'],
             align: ['left', 'right', 'left'],
-            rows: shopItems(s).map((id) => [itemLabel(id), String(ITEMS[id].price), ITEMS[id].desc]),
+            rows: shopItems(s, env).map((id) => [itemLabel(id), String(ITEMS[id].price), ITEMS[id].desc]),
           },
         ]);
       case 'leave-store':
         s = enterRoom(s, 'lobby');
-        return done(s, [roomBlock(s, now)]);
+        return done(s, [roomBlock(s, env)]);
       case 'buy': {
         const item = ITEMS[cmd.item];
         if (s.room !== 'store') {
           out.push(t('要先到 1F 便利商店才能買東西。'));
           return done(s);
         }
-        if (!shopItems(s).includes(cmd.item)) {
+        if (!shopItems(s, env).includes(cmd.item)) {
           out.push(t(`店員：「${item.name}還沒進貨喔。」`));
           return done(s);
         }
@@ -847,23 +1079,15 @@ export const mudGame: MoyuGame<MudState> = {
       case 'boss': {
         const boss = BOSSES.find((b) => b.room === s.room);
         if (!boss) {
-          out.push(t('大會議室在 7 樓，董事長室在 12 樓。'));
+          out.push(t('這裡沒有什麼好挑戰的。'));
           return done(s);
         }
         if (s.flags[boss.flag]) {
-          out.push(
-            t(boss.flag === 'boss1' ? '大會議室空蕩蕩的。白板上還留著一行字：「本次會議提早結束」。' : '董事長室的燈關著。桌上有一張便條：「今天準時下班。」'),
-          );
+          out.push(t(boss.cleared));
           return done(s);
         }
         if (s.level < boss.minLevel) {
-          out.push(
-            t(
-              boss.flag === 'boss1'
-                ? `門口的白板寫著：「與會資格：Lv${boss.minLevel} 以上」。你現在 Lv${s.level}，再去練練吧。`
-                : `門上貼著：「Lv${boss.minLevel} 以上才能進入」。門縫裡傳來「這個很簡單」的聲音，你決定再練練。`,
-            ),
-          );
+          out.push(t(boss.tooLow.replace('{min}', String(boss.minLevel)).replace('{lv}', String(s.level))));
           return done(s);
         }
         if (s.energy <= 0) {
@@ -878,7 +1102,7 @@ export const mudGame: MoyuGame<MudState> = {
       case 'patrol': {
         const room = ROOMS[s.room];
         if (!room.enemies) {
-          out.push(t(s.room === 'exec' ? '紅地毯上很安靜，只有董事長室的門縫透著光。' : '這裡很和平，沒什麼好巡的。'));
+          out.push(t(s.room === 'exec' ? '紅地毯上很安靜，只有董事長室的門縫透著光。' : s.room === 'b13' ? '你不敢亂走。黑暗裡有東西在呼吸。' : '這裡很和平，沒什麼好巡的。'));
           return done(s);
         }
         if (s.energy <= 0) {
@@ -893,11 +1117,12 @@ export const mudGame: MoyuGame<MudState> = {
         }
         if (rng.chance(perk(s, 9) === 2 ? 0.35 : 0.25)) {
           const ev = rng.pick(PATROL_EVENTS);
+          const boost = CH3_ROOMS.includes(s.room) ? 6 : s.flags.boss1 ? 3 : 1;
           out.push(t(ev.text));
-          if (ev.gold) s = { ...s, gold: s.gold + ev.gold * (s.flags.boss1 ? 3 : 1) };
-          if (ev.heal) s = { ...s, hp: Math.min(s.maxHp, s.hp + ev.heal * (s.flags.boss1 ? 3 : 1)) };
+          if (ev.gold) s = { ...s, gold: s.gold + ev.gold * boost };
+          if (ev.heal) s = { ...s, hp: Math.min(s.maxHp, s.hp + ev.heal * boost) };
           if (ev.item) s = { ...s, bag: { ...s.bag, [ev.item]: (s.bag[ev.item] ?? 0) + 1 } };
-          if (ev.exp) s = gainExp(s, ev.exp * (s.flags.boss1 ? 4 : 1), out, now);
+          if (ev.exp) s = gainExp(s, ev.exp * (boost + 1), out, now);
           return done(s);
         }
         const night = isNight(now) && room.nightEnemies?.length && rng.chance(0.3);

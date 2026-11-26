@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emptyProfile, type StepContext } from '../engine/types';
 import { BOSS_MIN_LEVEL, BOSSES, CLASSES, ENEMIES, FLOORS, ITEMS, KPI_QUEST_KILLS, MAX_ENERGY, PERKS, ROOMS, SHOP_ITEMS } from '../games/mud/data';
+import { isOpen, MUD_RELEASES } from '../games/mud/releases';
 import {
   atkOf,
   defOf,
@@ -17,8 +18,10 @@ import {
 } from '../games/mud/mud';
 
 const NOW = new Date('2026-11-21T10:00:00+08:00');
-const ctx = (now = NOW): StepContext => ({ profile: emptyProfile(), now });
+const ctx = (now = NOW, preview = false): StepContext => ({ profile: emptyProfile(), now, preview });
 const send = (s: MudState, text: string, now = NOW) => mudGame.step(s, { type: 'text', text }, ctx(now));
+/** 預覽模式：所有段落都開放 */
+const sendP = (s: MudState, text: string, now = NOW) => mudGame.step(s, { type: 'text', text }, ctx(now, true));
 
 function hero(cls: 'engineer' | 'sales' | 'designer' = 'engineer', extra: Partial<MudState> = {}): MudState {
   const s = send(newCharacter('test', NOW), CLASSES[cls].name).state;
@@ -61,6 +64,7 @@ describe('指令解析', () => {
     expect(parseCommand('stat', s)).toEqual({ type: 'status' });
     expect(parseCommand('go 3', s)).toEqual({ type: 'floor', index: 2 });
     expect(parseCommand('go b13', s)).toEqual({ type: 'floor', index: FLOORS.length - 1 });
+    expect(parseCommand('go b5', s)).toEqual({ type: 'floor', index: FLOORS.findIndex((f) => f.room === 'b-archive') });
     expect(parseCommand('go 10', s)).toEqual({ type: 'floor', index: FLOORS.findIndex((f) => f.room === 'legal') });
     expect(parseCommand('⚔️ 巡邏', s)).toEqual({ type: 'patrol' });
     expect(parseCommand('隨便打打', s)).toBeNull();
@@ -276,8 +280,11 @@ describe('第二章《加班》', () => {
   });
 
   it('商店的第二章商品要打完第一章才上架', () => {
-    expect(shopItems(hero())).not.toContain('monitors');
-    expect(shopItems(ch2())).toContain('monitors');
+    const env = { now: NOW, preview: false };
+    expect(shopItems(hero(), env)).not.toContain('monitors');
+    expect(shopItems(ch2(), env)).toContain('monitors');
+    expect(shopItems(ch2({ flags: { boss1: 1, boss2: 1 } }), env)).not.toContain('workstation');
+    expect(shopItems(ch2({ flags: { boss1: 1, boss2: 1 } }), { now: NOW, preview: true })).toContain('workstation');
     const r = send(hero('engineer', { room: 'store', gold: 999 }), '買 雙螢幕（320）');
     expect(r.state.weapon).toBeNull();
     const ok = send(ch2({ room: 'store', gold: 999 }), '買 降噪 Pro 耳機（300）');
@@ -369,6 +376,158 @@ describe('第二章《加班》', () => {
       expect(r.state.fragments).toBe(2);
       expect(r.state.flags.boss2).toBe(1);
       expect(JSON.stringify(r.replies)).toContain('第二章《加班》完成');
+    });
+  });
+});
+
+describe('第三章《B13》與終章', () => {
+  const ch3 = (extra: Partial<MudState> = {}, flags: Record<string, number> = {}) =>
+    hero('engineer', { level: 14, fragments: 2, ...extra, flags: { boss1: 1, ch2intro: 1, boss2: 1, ch3intro: 1, ...flags } });
+
+  it('開放設定預設全部關閉，網址 ?preview 可以全部打開', () => {
+    expect(MUD_RELEASES).toEqual({ ch3: null, finale: null, ngplus: null });
+    expect(isOpen('ch3', NOW)).toBe(false);
+    expect(isOpen('ch3', NOW, true)).toBe(true);
+    expect(isOpen('ch3', new Date('2026-12-01T00:00:00+08:00'), false, { ch3: '2026-12-01', finale: null, ngplus: null })).toBe(true);
+    expect(isOpen('ch3', new Date('2026-11-30T23:59:00+08:00'), false, { ch3: '2026-12-01', finale: null, ngplus: null })).toBe(false);
+  });
+
+  it('還沒開放時，KPI-9000 不給權限卡；開放後給，電梯 B1 解鎖', () => {
+    const s = ch3({ room: 'it' });
+    const closed = send(s, '💬 跟 KPI-9000 說話');
+    expect(closed.state.flags.card).toBeUndefined();
+    expect(JSON.stringify(closed.replies)).toContain('即將開放');
+    const open = sendP(s, '💬 跟 KPI-9000 說話');
+    expect(open.state.flags.card).toBe(1);
+    expect(sendP({ ...open.state, room: 'elevator' }, 'B1 停車場').state.room).toBe('b-parking');
+    expect(send({ ...open.state, room: 'elevator' }, 'B1 停車場').state.room).toBe('elevator');
+  });
+
+  it('舊存檔打完第二章、第三章開放後，第一次行動會補播第三章開場', () => {
+    const s = ch3({}, { ch3intro: 0 });
+    expect(JSON.stringify(send(s, 'look').replies)).not.toContain('第三章《B13》');
+    const r = sendP(s, 'look');
+    expect(JSON.stringify(r.replies)).toContain('第三章《B13》');
+  });
+
+  it('三隻守關 Boss 依序打開 B5、B9、B13', () => {
+    let s = ch3({ room: 'b-parking', baseAtk: 9999 }, { card: 1 });
+    for (const [room, flag, next] of [
+      ['b-parking', 'mb1', 'B5 檔案室'],
+      ['b-archive', 'mb2', 'B9 舊機房'],
+      ['b-server', 'mb3', 'B13'],
+    ] as const) {
+      s = { ...s, room };
+      const boss = BOSSES.find((b) => b.room === room)!;
+      expect(sendP(s, 'look').suggestions).toContain(boss.button);
+      s = sendP(s, boss.button).state;
+      expect(s.phase).toBe('combat');
+      s = sendP(s, '攻擊').state;
+      expect(s.flags[flag]).toBe(1);
+      expect(sendP({ ...s, room: 'elevator' }, next).state.room).not.toBe('elevator');
+    }
+  });
+
+  it('終章沒開放時，B13 按鈕鎖著', () => {
+    const s = ch3({ room: 'elevator' }, { card: 1, mb1: 1, mb2: 1, mb3: 1 });
+    expect(send(s, 'B13').state.room).toBe('elevator');
+    expect(sendP(s, 'B13').state.room).toBe('b13');
+  });
+
+  describe('季末', () => {
+    const dragonFight = (extra: Partial<MudState> = {}, flags: Record<string, number> = {}) => {
+      const s = ch3({ room: 'b13', maxHp: 99999, hp: 99999, baseDef: 9999, ...extra }, { card: 1, mb1: 1, mb2: 1, mb3: 1, ...flags });
+      const r = sendP(s, '🐉 喚醒季末').state;
+      expect(r.combat!.enemy).toBe('kimatsu');
+      return r;
+    };
+
+    it('三個階段：血量降到 2/3、1/3 時進入下一階段，第三階段攻擊 +4', () => {
+      let s = dragonFight();
+      const max = s.combat!.maxHp;
+      s = { ...s, combat: { ...s.combat!, hp: Math.floor(max * 0.6) } };
+      s = sendP({ ...s, baseAtk: 0, weapon: null }, '攻擊').state;
+      expect(s.combat!.stage).toBe(2);
+      s = { ...s, combat: { ...s.combat!, hp: Math.floor(max * 0.3), skipNext: false } };
+      const atk = s.combat!.atk;
+      s = sendP(s, '攻擊').state;
+      expect(s.combat!.stage).toBe(3);
+      expect(s.combat!.atk).toBe(atk + 4);
+    });
+
+    it('第二階段會吃掉回合；特休假單可以擋下', () => {
+      let s = dragonFight({ baseAtk: 0, weapon: null });
+      s = { ...s, combat: { ...s.combat!, hp: Math.floor(s.combat!.maxHp * 0.5), stage: 2 } };
+      let eaten = false;
+      for (let i = 0; i < 40 && !eaten; i++) {
+        s = sendP(s, '攻擊').state;
+        eaten = !!s.combat!.skipNext;
+      }
+      expect(eaten).toBe(true);
+      const hp = s.combat!.hp;
+      s = sendP({ ...s, baseAtk: 999 }, '攻擊').state;
+      expect(s.combat!.hp).toBe(hp); // 這回合被吃掉，沒有造成傷害
+
+      let p = dragonFight({ baseAtk: 0, weapon: null, bag: { pto: 5 } });
+      p = { ...p, combat: { ...p.combat!, hp: Math.floor(p.combat!.maxHp * 0.5), stage: 2 } };
+      for (let i = 0; i < 40 && (p.bag.pto ?? 0) === 5; i++) p = sendP(p, '攻擊').state;
+      expect(p.bag.pto).toBe(4);
+      expect(p.combat!.skipNext).toBeFalsy();
+    });
+
+    it('完成過 KPI-9000 任務，第三階段會有遠端支援；幫過阿桂姨，會收到最後的便當', () => {
+      let s = dragonFight({ baseAtk: 0, weapon: null, maxHp: 1000, hp: 100, baseDef: 9999 }, { qKpi: 2, qThermos: 3 });
+      s = { ...s, combat: { ...s.combat!, hp: Math.floor(s.combat!.maxHp * 0.3) } };
+      const before = s.combat!.hp;
+      const r = sendP(s, '攻擊');
+      expect(JSON.stringify(r.replies)).toContain('KPI-9000');
+      expect(r.state.combat!.hp).toBeLessThan(before);
+      expect(r.state.hp).toBeGreaterThan(900); // 補滿到 1000 之後季末照常攻擊
+      expect(r.state.combat!.auntieUsed).toBe(true);
+    });
+
+    it('打倒季末後選結局；KPI 結局要完成 KPI-9000 任務', () => {
+      let s = dragonFight({ baseAtk: 999999 });
+      s = sendP(s, '攻擊').state;
+      expect(s.phase).toBe('finale');
+      expect(s.fragments).toBe(3);
+      const choices = sendP(s, 'look').suggestions;
+      expect(choices).toHaveLength(2);
+      const end = sendP(s, '💬 問牠為什麼要吃週末');
+      expect(end.state.flags.end_weekend).toBe(1);
+      expect(end.state.flags.cleared).toBe(1);
+      expect(JSON.stringify(end.replies)).toContain('季末的週末');
+
+      let k = dragonFight({ baseAtk: 999999 }, { qKpi: 2 });
+      k = sendP(k, '攻擊').state;
+      expect(sendP(k, 'look').suggestions).toContain('🤖 請 KPI-9000 接手');
+    });
+  });
+
+  describe('二周目', () => {
+    const cleared = () => ch3({ room: 'lobby' }, { cleared: 1, end_overtime: 1 });
+
+    it('還沒開放時不能轉職；開放後回到建角，保留結局，周目 +1', () => {
+      expect(send(cleared(), 'look').suggestions).not.toContain('🔁 轉職（二周目）');
+      expect(sendP(cleared(), 'look').suggestions).toContain('🔁 轉職（二周目）');
+      expect(send(cleared(), '🔁 轉職（二周目）').state.phase).toBe('explore');
+      const r = sendP(cleared(), '🔁 轉職（二周目）').state;
+      expect(r.phase).toBe('create');
+      expect(r.level).toBe(1);
+      expect(r.flags.ng).toBe(1);
+      expect(r.flags.end_overtime).toBe(1);
+      expect(r.flags.boss1).toBeUndefined();
+      expect(r.gold).toBe(200);
+    });
+
+    it('二周目的怪物變強 15%，經驗與金錢也增加', () => {
+      let s = sendP(cleared(), '🔁 轉職（二周目）').state;
+      s = sendP(s, '工程師').state;
+      s = { ...s, room: 'eng', baseAtk: 9999, energy: 99 };
+      for (let i = 0; i < 50 && s.phase !== 'combat'; i++) s = sendP({ ...s, energy: 99 }, '巡邏').state;
+      const e = ENEMIES[s.combat!.enemy];
+      expect(s.combat!.maxHp).toBe(Math.round(e.hp * 1.15));
+      expect(s.combat!.scale).toBeCloseTo(1.15);
     });
   });
 });
