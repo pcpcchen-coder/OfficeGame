@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { emptyProfile, type StepContext } from '../engine/types';
-import { BOSS_MIN_LEVEL, BOSSES, CLASSES, ENEMIES, FLOORS, ITEMS, KPI_QUEST_KILLS, MAX_ENERGY, PERKS, ROOMS, SHOP_ITEMS } from '../games/mud/data';
+import { BOSS_MIN_LEVEL, BOSSES, CLASSES, ENEMIES, ENERGY_REGEN_MS, FLOORS, ITEMS, KPI_QUEST_KILLS, MAX_ENERGY, PERKS, ROOMS, SHOP_ITEMS } from '../games/mud/data';
 import { isOpen, MUD_RELEASES } from '../games/mud/releases';
 import {
   atkOf,
@@ -10,6 +10,7 @@ import {
   isNight,
   mudGame,
   newCharacter,
+  minutesToNextEnergy,
   parseCommand,
   pendingPerkTier,
   refreshEnergy,
@@ -122,11 +123,68 @@ describe('移動與城鎮', () => {
 });
 
 describe('精力', () => {
-  it('巡邏扣精力，用完就不能巡邏', () => {
-    const s = hero('engineer', { room: 'eng', energy: 0 });
+  it('巡邏扣精力，用完就不能巡邏，並提示多久後恢復與雙份濃縮', () => {
+    const s = hero('engineer', { room: 'eng', energy: 0, energyAt: NOW.getTime() });
     const r = send(s, '巡邏');
     expect(r.state.phase).toBe('explore');
-    expect(JSON.stringify(r.replies)).toContain('精力用完了');
+    const text = JSON.stringify(r.replies);
+    expect(text).toContain('精力用完了');
+    expect(text).toContain('每 6 分鐘會恢復 1 點');
+    expect(text).toContain('雙份濃縮');
+    expect(text).not.toContain('明天再來');
+  });
+
+  it('每 6 分鐘自動恢復 1 點精力，最多到上限', () => {
+    const t0 = NOW.getTime();
+    const s = hero('engineer', { energy: 0, energyAt: t0 });
+    expect(refreshEnergy(s, new Date(t0 + ENERGY_REGEN_MS - 1000)).state.energy).toBe(0);
+    const one = refreshEnergy(s, new Date(t0 + ENERGY_REGEN_MS + 1000));
+    expect(one.state.energy).toBe(1);
+    expect(one.regained).toBe(1);
+    // 多出來的零頭會保留到下一點
+    expect(one.state.energyAt).toBe(t0 + ENERGY_REGEN_MS);
+    const later = refreshEnergy(s, new Date(t0 + ENERGY_REGEN_MS * 7 + 1000));
+    expect(later.state.energy).toBe(7);
+    // 同一天內（10:00 → 12:30）補到上限就停
+    const full = refreshEnergy(s, new Date(t0 + ENERGY_REGEN_MS * 25));
+    expect(full.state.energyDay).toBe(s.energyDay);
+    expect(full.state.energy).toBe(MAX_ENERGY);
+    expect(full.regained).toBe(MAX_ENERGY);
+  });
+
+  it('精力恢復會告訴玩家，狀態列也顯示下一點的時間', () => {
+    const t0 = NOW.getTime();
+    const s = hero('engineer', { room: 'eng', energy: 3, energyAt: t0 });
+    const r = send(s, 'look', new Date(t0 + ENERGY_REGEN_MS * 2 + 30_000));
+    expect(r.state.energy).toBe(5);
+    expect(JSON.stringify(r.replies)).toContain('精力恢復了 2 點');
+    expect(JSON.stringify(r.replies)).toContain('（+1 約');
+    expect(minutesToNextEnergy(r.state, new Date(t0 + ENERGY_REGEN_MS * 2 + 30_000))).toBe(6);
+  });
+
+  it('舊存檔沒有 energyAt：從現在開始計時，不會一次補滿', () => {
+    const s = hero('engineer', { energy: 2, energyAt: undefined });
+    const r = refreshEnergy(s, NOW);
+    expect(r.state.energy).toBe(2);
+    expect(r.state.energyAt).toBe(NOW.getTime());
+  });
+
+  it('雙份濃縮：便利商店買得到，立刻恢復 5 點，不能超過上限，戰鬥中不能喝', () => {
+    let s = hero('engineer', { room: 'store', gold: 100, energy: 2 });
+    expect(shopItems(s, { now: NOW, preview: false })).toContain('espresso');
+    s = send(s, '買 雙份濃縮（40）').state;
+    expect(s.bag.espresso).toBe(1);
+    expect(send(s, 'look').suggestions).not.toContain('☕ 喝雙份濃縮（1）'); // 商店裡只顯示商品
+    s = { ...s, room: 'eng' };
+    expect(send(s, 'look').suggestions).toContain('☕ 喝雙份濃縮（1）');
+    s = send(s, '☕ 喝雙份濃縮（1）').state;
+    expect(s.energy).toBe(7);
+    expect(s.bag.espresso).toBe(0);
+    const nearFull = send({ ...s, energy: MAX_ENERGY - 2, bag: { espresso: 1 } }, '喝雙份濃縮').state;
+    expect(nearFull.energy).toBe(MAX_ENERGY);
+    const full = send({ ...nearFull, bag: { espresso: 1 } }, '喝雙份濃縮').state;
+    expect(full.bag.espresso).toBe(1);
+    expect(ITEMS.espresso.price).toBe(40);
   });
 
   it('過了台灣午夜精力回滿', () => {
