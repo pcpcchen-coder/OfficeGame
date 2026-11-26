@@ -1,7 +1,10 @@
 name: Deploy to GitHub Pages
 
 # 需要先在 repo 的 Settings → Pages 把 Source 設成「GitHub Actions」
-# main 有新的提交時自動部署；也可以在 Actions 頁面手動執行
+# main 有新的提交時自動部署；也可以在 Actions 頁面手動執行。
+# 建置與部署分成兩個工作（GitHub 官方範本的寫法）：部署要等建置整個結束才開始，
+# 避免部署步驟在網站檔案剛上傳完、還查不到時就去找，導致「No artifacts named github-pages」。
+# 部署失敗時請用「Run workflow」開新的一次，不要在同一次執行上重跑（會變成兩份同名檔案）。
 on:
   push:
     branches: [main]
@@ -14,14 +17,11 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,5 +37,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
