@@ -8,11 +8,11 @@ export type ReleaseKey = 'ch3' | 'finale' | 'ngplus';
 
 export const MUD_RELEASES: Record<ReleaseKey, string | null> = {
   /** 第三章《B13》：地下 B1~B12，三隻守關 Boss */
-  ch3: null,
+  ch3: '2026-12-12',
   /** 終章：B13 三階段龍戰與三種結局 */
-  finale: null,
+  finale: '2026-12-24',
   /** 二周目：看完結局後轉職重來 */
-  ngplus: null,
+  ngplus: '2026-12-24',
 };
 
 export const RELEASE_LABEL: Record<ReleaseKey, string> = {
