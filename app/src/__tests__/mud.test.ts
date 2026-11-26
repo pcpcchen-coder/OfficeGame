@@ -384,9 +384,14 @@ describe('第三章《B13》與終章', () => {
   const ch3 = (extra: Partial<MudState> = {}, flags: Record<string, number> = {}) =>
     hero('engineer', { level: 14, fragments: 2, ...extra, flags: { boss1: 1, ch2intro: 1, boss2: 1, ch3intro: 1, ...flags } });
 
-  it('開放設定預設全部關閉，網址 ?preview 可以全部打開', () => {
-    expect(MUD_RELEASES).toEqual({ ch3: null, finale: null, ngplus: null });
+  it('開放日：第三章 12/12、終章與二周目 12/24（台灣時間）；網址 ?preview 可以全部打開', () => {
+    expect(MUD_RELEASES).toEqual({ ch3: '2026-12-12', finale: '2026-12-24', ngplus: '2026-12-24' });
     expect(isOpen('ch3', NOW)).toBe(false);
+    expect(isOpen('ch3', new Date('2026-12-11T23:59:00+08:00'))).toBe(false);
+    expect(isOpen('ch3', new Date('2026-12-12T00:00:00+08:00'))).toBe(true);
+    expect(isOpen('finale', new Date('2026-12-23T23:59:00+08:00'))).toBe(false);
+    expect(isOpen('finale', new Date('2026-12-24T00:00:00+08:00'))).toBe(true);
+    expect(isOpen('ngplus', new Date('2026-12-24T00:00:00+08:00'))).toBe(true);
     expect(isOpen('ch3', NOW, true)).toBe(true);
     expect(isOpen('ch3', new Date('2026-12-01T00:00:00+08:00'), false, { ch3: '2026-12-01', finale: null, ngplus: null })).toBe(true);
     expect(isOpen('ch3', new Date('2026-11-30T23:59:00+08:00'), false, { ch3: '2026-12-01', finale: null, ngplus: null })).toBe(false);
