@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { emptyProfile, type StepContext } from '../engine/types';
-import { BOSS_MIN_LEVEL, CLASSES, ENEMIES, FLOORS, ITEMS, MAX_ENERGY, ROOMS, SHOP_ITEMS } from '../games/mud/data';
-import { atkOf, defOf, expToNext, mudGame, newCharacter, parseCommand, refreshEnergy, type MudState } from '../games/mud/mud';
+import { BOSS_MIN_LEVEL, BOSSES, CLASSES, ENEMIES, FLOORS, ITEMS, KPI_QUEST_KILLS, MAX_ENERGY, PERKS, ROOMS, SHOP_ITEMS } from '../games/mud/data';
+import {
+  atkOf,
+  defOf,
+  energyMax,
+  expToNext,
+  isNight,
+  mudGame,
+  newCharacter,
+  parseCommand,
+  pendingPerkTier,
+  refreshEnergy,
+  shopItems,
+  type MudState,
+} from '../games/mud/mud';
 
 const NOW = new Date('2026-11-21T10:00:00+08:00');
 const ctx = (now = NOW): StepContext => ({ profile: emptyProfile(), now });
@@ -14,9 +27,12 @@ function hero(cls: 'engineer' | 'sales' | 'designer' = 'engineer', extra: Partia
 
 describe('世界資料', () => {
   it('打獵房間的怪物都存在，商店商品都有價格', () => {
-    for (const r of Object.values(ROOMS)) for (const e of r.enemies ?? []) expect(ENEMIES[e]).toBeDefined();
+    for (const r of Object.values(ROOMS)) {
+      for (const e of r.enemies ?? []) expect(ENEMIES[e].night).toBeFalsy();
+      for (const e of r.nightEnemies ?? []) expect(ENEMIES[e].night).toBe(true);
+    }
     for (const id of SHOP_ITEMS) expect(ITEMS[id].price).toBeGreaterThan(0);
-    expect(Object.values(ENEMIES).filter((e) => e.boss)).toHaveLength(1);
+    expect(Object.values(ENEMIES).filter((e) => e.boss).map((e) => e.id).sort()).toEqual(BOSSES.map((b) => b.enemy).sort());
   });
 
   it('電梯樓層指向存在的房間，鎖住的樓層有說明', () => {
@@ -44,7 +60,8 @@ describe('指令解析', () => {
     expect(parseCommand('look', s)).toEqual({ type: 'look' });
     expect(parseCommand('stat', s)).toEqual({ type: 'status' });
     expect(parseCommand('go 3', s)).toEqual({ type: 'floor', index: 2 });
-    expect(parseCommand('go b13', s)).toEqual({ type: 'floor', index: 6 });
+    expect(parseCommand('go b13', s)).toEqual({ type: 'floor', index: FLOORS.length - 1 });
+    expect(parseCommand('go 10', s)).toEqual({ type: 'floor', index: FLOORS.findIndex((f) => f.room === 'legal') });
     expect(parseCommand('⚔️ 巡邏', s)).toEqual({ type: 'patrol' });
     expect(parseCommand('隨便打打', s)).toBeNull();
   });
@@ -210,5 +227,148 @@ describe('升級與 Boss', () => {
 
   it('防禦力包含防具', () => {
     expect(defOf(hero('engineer', { armor: 'headphones' }))).toBe(CLASSES.engineer.def + 4);
+  });
+});
+
+describe('第二章《加班》', () => {
+  const ch2 = (extra: Partial<MudState> = {}) => hero('engineer', { flags: { boss1: 1, ch2intro: 1 }, fragments: 1, level: 5, ...extra });
+  const DAY = new Date('2026-11-21T10:00:00+08:00');
+  const NIGHT = new Date('2026-11-21T23:30:00+08:00');
+
+  it('打倒第一章 Boss 前，8F 以上鎖住；之後開放', () => {
+    const locked = send({ ...hero(), room: 'elevator' }, '8F 🔒');
+    expect(locked.state.room).toBe('elevator');
+    expect(locked.suggestions).toContain('8F 🔒');
+    const open = send({ ...ch2(), room: 'elevator' }, '8F 行銷部');
+    expect(open.state.room).toBe('mkt');
+    expect(send({ ...ch2(), room: 'elevator' }, 'look').suggestions).toContain('12F 董事長室');
+  });
+
+  it('舊存檔打完第一章後第一次行動，會看到第二章開場', () => {
+    const s = hero('engineer', { flags: { boss1: 1 } });
+    const r = send(s, 'look');
+    expect(JSON.stringify(r.replies)).toContain('第二章《加班》');
+    expect(r.state.flags.ch2intro).toBe(1);
+    expect(JSON.stringify(send(r.state, 'look').replies)).not.toContain('第二章《加班》');
+  });
+
+  it('夜間判斷以台灣時間 19:00~07:00 為準', () => {
+    expect(isNight(DAY)).toBe(false);
+    expect(isNight(NIGHT)).toBe(true);
+    expect(isNight(new Date('2026-11-21T06:59:00+08:00'))).toBe(true);
+    expect(isNight(new Date('2026-11-21T07:00:00+08:00'))).toBe(false);
+  });
+
+  it('夜間怪物只在晚上出現', () => {
+    const nightOnly = new Set(Object.values(ROOMS).flatMap((r) => r.nightEnemies ?? []));
+    const seen = (now: Date) => {
+      const found = new Set<string>();
+      let s = ch2({ room: 'it', energy: 999 });
+      for (let i = 0; i < 200; i++) {
+        const r = send({ ...s, energy: 999, phase: 'explore', combat: null }, '巡邏', now).state;
+        if (r.combat) found.add(r.combat.enemy);
+        s = r;
+      }
+      return found;
+    };
+    expect([...seen(DAY)].some((e) => nightOnly.has(e as never))).toBe(false);
+    expect([...seen(NIGHT)].some((e) => nightOnly.has(e as never))).toBe(true);
+  });
+
+  it('商店的第二章商品要打完第一章才上架', () => {
+    expect(shopItems(hero())).not.toContain('monitors');
+    expect(shopItems(ch2())).toContain('monitors');
+    const r = send(hero('engineer', { room: 'store', gold: 999 }), '買 雙螢幕（320）');
+    expect(r.state.weapon).toBeNull();
+    const ok = send(ch2({ room: 'store', gold: 999 }), '買 降噪 Pro 耳機（300）');
+    expect(ok.state.armor).toBe('nc-pro');
+  });
+
+  describe('天賦', () => {
+    it('Lv5 起每一階要選一個，選了才會往下一階', () => {
+      const s = ch2({ level: 9 });
+      expect(pendingPerkTier(s)).toBe(5);
+      const first = send(s, '🌱 天賦：早鳥').state;
+      expect(first.flags.perk5).toBe(2);
+      expect(energyMax(first)).toBe(MAX_ENERGY + 5);
+      expect(pendingPerkTier(first)).toBe(7);
+      const wrongTier = send(first, '🌱 天賦：升遷之路').state;
+      expect(wrongTier.flags.perk9).toBeUndefined();
+    });
+
+    it('抗壓 +15 HP、升遷之路 +4 攻擊', () => {
+      let s = ch2({ level: 9, flags: { boss1: 1, ch2intro: 1, perk5: 1 } });
+      const hp = s.maxHp;
+      s = send(s, '🌱 天賦：抗壓').state;
+      expect(s.maxHp).toBe(hp + 15);
+      const atk = atkOf(s);
+      s = send(s, '🌱 天賦：升遷之路').state;
+      expect(atkOf(s)).toBe(atk + 4);
+      expect(pendingPerkTier(s)).toBeNull();
+    });
+
+    it('咖啡因耐受讓回血道具效果 +50%', () => {
+      const s = ch2({ hp: 1, maxHp: 999, bag: { coffee: 1 }, flags: { boss1: 1, ch2intro: 1, perk5: 1 } });
+      expect(send(s, '☕ 喝美式咖啡（1）').state.hp).toBe(1 + Math.round(15 * 1.5));
+    });
+
+    it('每一階都有兩個選項', () => {
+      for (const tier of [5, 7, 9]) expect(PERKS.filter((p) => p.tier === tier)).toHaveLength(2);
+    });
+  });
+
+  describe('任務', () => {
+    it('阿桂姨的保溫杯：接任務 → 9F 找到 → 回報拿便當', () => {
+      let s = ch2({ room: 'pantry' });
+      s = send(s, '💬 跟阿桂姨聊天').state;
+      expect(s.flags.qThermos).toBe(1);
+      s = { ...s, room: 'fin' };
+      for (let i = 0; i < 100 && s.flags.qThermos === 1; i++) s = send({ ...s, energy: 99, phase: 'explore', combat: null }, '巡邏').state;
+      expect(s.flags.qThermos).toBe(2);
+      s = send({ ...s, room: 'pantry', phase: 'explore', combat: null }, '💬 跟阿桂姨聊天').state;
+      expect(s.flags.qThermos).toBe(3);
+      expect(s.bag.bento).toBe(2);
+    });
+
+    it('KPI-9000 的稽核：在 10F、11F 打倒 5 隻，回報拿防火牆', () => {
+      let s = send(ch2({ room: 'it' }), '💬 跟 KPI-9000 說話').state;
+      expect(s.flags.qKpi).toBe(1);
+      let wins = 0;
+      for (let i = 0; i < 200 && wins < KPI_QUEST_KILLS; i++) {
+        s = send({ ...s, energy: 99, baseAtk: 999 }, s.phase === 'combat' ? '攻擊' : '巡邏').state;
+        if (s.phase === 'explore' && (s.flags.kpiKills ?? 0) > wins) wins = s.flags.kpiKills!;
+      }
+      expect(s.flags.kpiKills).toBeGreaterThanOrEqual(KPI_QUEST_KILLS);
+      s = send({ ...s, phase: 'explore', combat: null, armor: null }, '💬 跟 KPI-9000 說話').state;
+      expect(s.flags.qKpi).toBe(2);
+      expect(s.armor).toBe('firewall');
+    });
+  });
+
+  describe('第二章 Boss：凌晨兩點的空降專案', () => {
+    it('Lv9 以下進不去', () => {
+      const r = send(ch2({ room: 'exec', level: 8 }), '🚪 敲董事長室的門');
+      expect(r.state.phase).toBe('explore');
+    });
+
+    it('每 4 回合需求變更，血量過半暴怒', () => {
+      let s = send(ch2({ room: 'exec', level: 9, maxHp: 9999, hp: 9999, baseDef: 999 }), '🚪 敲董事長室的門').state;
+      expect(s.combat!.enemy).toBe('airdrop-project');
+      s = { ...s, baseAtk: 0, weapon: null };
+      for (let i = 0; i < 4; i++) s = send(s, '攻擊').state;
+      expect(s.combat!.atk).toBe(ENEMIES['airdrop-project'].atk + 2);
+      s = { ...s, combat: { ...s.combat!, hp: 100 } };
+      s = send(s, '攻擊').state;
+      expect(s.combat!.enraged).toBe(true);
+    });
+
+    it('打倒後取得第二片碎片，第二章完成', () => {
+      let s = send(ch2({ room: 'exec', level: 9 }), '🚪 敲董事長室的門').state;
+      s = { ...s, baseAtk: 9999 };
+      const r = send(s, '攻擊');
+      expect(r.state.fragments).toBe(2);
+      expect(r.state.flags.boss2).toBe(1);
+      expect(JSON.stringify(r.replies)).toContain('第二章《加班》完成');
+    });
   });
 });
