@@ -72,6 +72,8 @@ export type Action = { type: 'open-game'; gameId: GameId } | { type: 'restart-tu
 export interface StepContext {
   profile: Profile;
   now: Date;
+  /** 網址有 ?preview：略過所有開放日限制 */
+  preview?: boolean;
 }
 
 export interface StepResult<S> {

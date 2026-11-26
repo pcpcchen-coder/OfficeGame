@@ -1,4 +1,4 @@
-// 《B13 之龍》的世界資料（第一章「入職」、第二章「加班」）。全部原創，見 docs/03-mud-design.md。
+// 《B13 之龍》的世界資料（第一章「入職」、第二章「加班」、第三章「B13」與終章）。全部原創，見 docs/03-mud-design.md。
 
 export type ClassId = 'engineer' | 'sales' | 'designer';
 export type RoomId =
@@ -14,7 +14,11 @@ export type RoomId =
   | 'fin'
   | 'legal'
   | 'it'
-  | 'exec';
+  | 'exec'
+  | 'b-parking'
+  | 'b-archive'
+  | 'b-server'
+  | 'b13';
 export type ItemId =
   | 'coffee'
   | 'boba'
@@ -28,7 +32,13 @@ export type ItemId =
   | 'bento'
   | 'ctrl-z'
   | 'camera-off'
-  | 'firewall';
+  | 'firewall'
+  | 'super-energy'
+  | 'pto'
+  | 'workstation'
+  | 'ergo-chair'
+  | 'vimrc'
+  | 'remote-permit';
 export type EnemyId =
   | 'todo'
   | 'merge-slime'
@@ -56,7 +66,20 @@ export type EnemyId =
   | 'bsod'
   | 'legacy-ie'
   | 'pager'
-  | 'airdrop-project';
+  | 'airdrop-project'
+  | 'lost-car'
+  | 'parking-meter'
+  | 'flicker-light'
+  | 'tow-king'
+  | 'old-contract'
+  | 'biting-binder'
+  | 'jammed-shredder'
+  | 'archivist'
+  | 'zombie-process'
+  | 'y2k-bug'
+  | 'two-am-cron'
+  | 'mainframe'
+  | 'kimatsu';
 
 export const MAX_ENERGY = 20;
 export const BOSS_MIN_LEVEL = 4;
@@ -118,8 +141,8 @@ export interface ItemDef {
   price: number;
   kind: 'consumable' | 'weapon' | 'armor';
   rarity: Rarity;
-  /** 打倒第一章 Boss 之後商店才會上架 */
-  chapter?: 2;
+  /** 打倒前一章 Boss 之後商店才會上架（2 = 第一章 Boss、3 = 第二章 Boss） */
+  chapter?: 2 | 3;
   heal?: number;
   atk?: number;
   def?: number;
@@ -156,13 +179,60 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     def: 11,
     desc: '防禦 +11。沒有人知道你其實穿著睡衣。只會從怪物身上掉落。',
   },
+  'super-energy': {
+    id: 'super-energy',
+    name: '超級能量飲',
+    price: 90,
+    kind: 'consumable',
+    rarity: 'fine',
+    chapter: 3,
+    heal: 120,
+    desc: '回復 120 HP。罐子上寫著「一天限一罐」，沒有人遵守。',
+  },
+  pto: {
+    id: 'pto',
+    name: '特休假單',
+    price: 150,
+    kind: 'consumable',
+    rarity: 'fine',
+    chapter: 3,
+    desc: '帶在身上就好。季末吞噬你的回合時，會自動亮出來擋住一次。',
+  },
+  workstation: { id: 'workstation', name: '三螢幕工作站', price: 900, kind: 'weapon', rarity: 'fine', chapter: 3, atk: 20, desc: '攻擊 +20。左邊開會、中間寫扣、右邊看股票。' },
+  'ergo-chair': { id: 'ergo-chair', name: '人體工學椅', price: 850, kind: 'armor', rarity: 'fine', chapter: 3, def: 15, desc: '防禦 +15。坐上去之後，腰就是你的了。' },
+  vimrc: { id: 'vimrc', name: '祖傳的 Vim 設定檔', price: 0, kind: 'weapon', rarity: 'rare', atk: 26, desc: '攻擊 +26。沒有人知道怎麼離開它。只會從地下樓層的怪物身上掉落。' },
+  'remote-permit': {
+    id: 'remote-permit',
+    name: '永久遠端工作許可',
+    price: 0,
+    kind: 'armor',
+    rarity: 'rare',
+    def: 19,
+    desc: '防禦 +19。傳說中的文件，持有者可以永遠不用進辦公室。只會從地下樓層的怪物身上掉落。',
+  },
   firewall: { id: 'firewall', name: 'KPI-9000 的防火牆', price: 0, kind: 'armor', rarity: 'rare', def: 10, desc: '防禦 +10。KPI-9000 送的。它說這是「信任的證明」。' },
 };
 
-export const SHOP_ITEMS: ItemId[] = ['coffee', 'boba', 'energy', 'keyboard', 'hoodie', 'laser', 'headphones', 'monitors', 'nc-pro'];
+export const SHOP_ITEMS: ItemId[] = [
+  'coffee',
+  'boba',
+  'energy',
+  'super-energy',
+  'pto',
+  'keyboard',
+  'hoodie',
+  'laser',
+  'headphones',
+  'monitors',
+  'nc-pro',
+  'workstation',
+  'ergo-chair',
+];
 
 /** 第二章的稀有掉落 */
 export const RARE_DROPS: ItemId[] = ['ctrl-z', 'camera-off'];
+/** 第三章（地下樓層）的稀有掉落 */
+export const RARE_DROPS_CH3: ItemId[] = ['vimrc', 'remote-permit'];
 export const DROP_CHANCE = 0.06;
 
 /** 道具名稱加上稀有度記號 */
@@ -517,6 +587,166 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
     attacks: ['空降專案說：「這個很簡單，應該半天就好。」', '空降專案追加了一個「小小的」需求。', '空降專案說：「老闆很重視這個案子。」'],
     defeat: '專案終於結案了。企劃書在你面前慢慢燒成灰，灰燼裡有一張卡片。',
   },
+  'lost-car': {
+    id: 'lost-car',
+    name: '永遠找不到的車位',
+    hp: 90,
+    atk: 32,
+    def: 15,
+    exp: 40,
+    gold: 50,
+    intro: '你明明記得車停在 B3。但這裡每一根柱子都寫著 B3。',
+    attacks: ['車位又往前移了一格。', '遠方傳來你車子的防盜器聲，但你找不到它。'],
+    defeat: '你終於找到了。車位號碼是 B3-127，你把它拍下來，發誓下次一定記得。',
+  },
+  'parking-meter': {
+    id: 'parking-meter',
+    name: '停車費計時器',
+    hp: 95,
+    atk: 33,
+    def: 14,
+    exp: 42,
+    gold: 52,
+    intro: '一台繳費機的螢幕亮起：「您已停車 72 小時，應繳金額：NT$ 4,320」。',
+    attacks: ['計時器跳了一格，又多 30 元。', '繳費機說：「本機不收紙鈔」。'],
+    defeat: '你出示了員工停車證。計時器沉默地歸零了。',
+  },
+  'flicker-light': {
+    id: 'flicker-light',
+    name: '閃爍的日光燈',
+    hp: 100,
+    atk: 31,
+    def: 16,
+    exp: 44,
+    gold: 54,
+    intro: '頭上的日光燈開始閃。亮、暗、亮、暗……你的眼睛開始痛了。',
+    attacks: ['燈管發出「滋滋」聲，你的頭更痛了。', '燈完全暗掉三秒，再突然亮起來。'],
+    defeat: '你報修了。總務說三個工作天內處理。它在你走之前就自己好了。',
+  },
+  'tow-king': {
+    id: 'tow-king',
+    name: '拖吊車之王',
+    hp: 260,
+    atk: 38,
+    def: 18,
+    exp: 160,
+    gold: 200,
+    boss: true,
+    intro: 'B4 的盡頭停著一台巨大的拖吊車。車斗上掛著幾十台被拖走的機車。它的大燈亮了起來。',
+    attacks: ['拖吊車把你的機車吊了起來。', '拖吊車開出一張罰單，金額是你的日薪。', '拖吊車倒車，嗶——嗶——嗶——'],
+    defeat: '拖吊車熄火了。車斗上掉下一張樓梯間的門禁卡，上面寫著「B5」。',
+  },
+  'old-contract': {
+    id: 'old-contract',
+    name: '十年前的合約',
+    hp: 110,
+    atk: 36,
+    def: 17,
+    exp: 48,
+    gold: 58,
+    intro: '一份泛黃的合約從檔案櫃裡爬出來。它還沒過期，而且自動續約了十次。',
+    attacks: ['合約翻到「自動續約」那一條。', '合約說：「本合約終止需於三個月前書面通知」。'],
+    defeat: '你找到了終止條款，寄出存證信函。合約終於安息了。',
+  },
+  'biting-binder': {
+    id: 'biting-binder',
+    name: '會咬人的資料夾',
+    hp: 115,
+    atk: 37,
+    def: 16,
+    exp: 50,
+    gold: 60,
+    intro: '一個藍色的 D 型環資料夾張開嘴巴。裡面的環已經生鏽了。',
+    attacks: ['資料夾咬住了你的手指。', '資料夾吐出兩百張沒有編號的文件。'],
+    defeat: '你把資料夾的環扳開，文件歸檔完畢。它終於不咬人了。',
+  },
+  'jammed-shredder': {
+    id: 'jammed-shredder',
+    name: '卡紙的碎紙機',
+    hp: 120,
+    atk: 35,
+    def: 18,
+    exp: 52,
+    gold: 62,
+    intro: '碎紙機發出痛苦的聲音。它吃了一份 300 頁的報告，現在吐不出來也吞不下去。',
+    attacks: ['碎紙機倒轉，把碎紙噴到你臉上。', '碎紙機咬住了你的識別證掛繩。'],
+    defeat: '你按住倒退鍵十秒。碎紙機咳出最後一張紙，上面寫著「機密」。',
+  },
+  archivist: {
+    id: 'archivist',
+    name: '被遺忘的檔案管理員',
+    hp: 300,
+    atk: 42,
+    def: 20,
+    exp: 200,
+    gold: 240,
+    boss: true,
+    intro: 'B8 最深處坐著一個人影，抱著一疊卡片目錄。它說：「我在這裡整理了二十年。沒有人來借過任何東西。」',
+    attacks: ['檔案管理員說：「這份文件要填調閱申請。」', '檔案管理員把你歸檔到「待處理」。', '檔案管理員用卡片目錄砸你。'],
+    defeat: '「謝謝你……終於有人來了。」它把一張寫著「B9」的鑰匙放在你手上，然後慢慢變成一張索引卡。',
+  },
+  'zombie-process': {
+    id: 'zombie-process',
+    name: '殭屍程序',
+    hp: 130,
+    atk: 40,
+    def: 19,
+    exp: 56,
+    gold: 66,
+    intro: '一個 PID 不斷跳動的程序從機櫃裡爬出來。它已經死了，但父程序不肯收屍。',
+    attacks: ['殭屍程序佔住了你的 PID。', '殭屍程序咬了你一口，你的記憶體少了 4KB。'],
+    defeat: '你找到它的父程序，送了一個 SIGCHLD。它終於被回收了。',
+  },
+  'y2k-bug': {
+    id: 'y2k-bug',
+    name: '千禧蟲',
+    hp: 135,
+    atk: 41,
+    def: 20,
+    exp: 58,
+    gold: 68,
+    intro: '一隻寫著「99」的蟲從老舊的報表程式裡爬出來。它以為現在是 1900 年。',
+    attacks: ['千禧蟲把你的年資算成負 126 年。', '千禧蟲把所有日期都變成 01/01/00。'],
+    defeat: '你把年份欄位從兩位數改成四位數。它在 2000 年就該死了。',
+  },
+  'two-am-cron': {
+    id: 'two-am-cron',
+    name: '半夜兩點的排程',
+    hp: 140,
+    atk: 42,
+    def: 19,
+    exp: 60,
+    gold: 70,
+    intro: '一行 crontab 亮了起來：「0 2 * * *」。沒有人知道它在做什麼，但沒有人敢刪掉它。',
+    attacks: ['排程在凌晨兩點準時寄了一封信給全公司。', '排程把磁碟塞滿了 log。'],
+    defeat: '你在那行前面加了一個「#」。世界沒有毀滅。你鬆了一口氣。',
+  },
+  mainframe: {
+    id: 'mainframe',
+    name: '大型主機',
+    hp: 340,
+    atk: 46,
+    def: 22,
+    exp: 240,
+    gold: 280,
+    boss: true,
+    intro: 'B12 的中央立著一台比人還高的大型主機。綠色的字在螢幕上滾動：「SYSTEM READY. 1987.」',
+    attacks: ['大型主機吐出一卷印滿數字的報表紙。', '大型主機說：「請插入第 2 片磁片」。', '主機的磁帶機瘋狂轉動，噪音震耳欲聾。'],
+    defeat: '你按下那顆紅色的大按鈕。主機的燈一盞一盞熄滅。最後一行字是：「B13 ACCESS GRANTED.」',
+  },
+  kimatsu: {
+    id: 'kimatsu',
+    name: '季末',
+    hp: 850,
+    atk: 48,
+    def: 24,
+    exp: 800,
+    gold: 1000,
+    boss: true,
+    intro: '機房深處的冷氣忽然停了。黑暗中睜開兩隻眼睛，每隻都像一個倒數計時器：「距離季末還有 0 天」。牠醒了。',
+    attacks: ['季末吐出一口火，你的行事曆燒掉了一整週。', '季末甩動尾巴，掃落了一整排的待辦事項。', '季末咆哮：「結算！結算！結算！」'],
+    defeat: '季末倒下了。牠咳了幾聲，吐出一張閃閃發光的卡片。',
+  },
 };
 
 export interface RoomDef {
@@ -626,6 +856,33 @@ export const ROOMS: Record<RoomId, RoomDef> = {
     nightEnemies: ['pager'],
     nightDesc: '值班的人趴在鍵盤上睡著了，手機螢幕還亮著。',
   },
+  'b-parking': {
+    id: 'b-parking',
+    floor: 'B1~B4',
+    title: 'B1~B4 地下停車場',
+    desc: ['一排排機車和汽車安靜地停著，空氣裡有汽油和潮濕的味道。', '樓梯間的門上貼著：「往下：B5 檔案室（需門禁卡）」。B4 的盡頭停著一台巨大的拖吊車。'],
+    enemies: ['lost-car', 'parking-meter', 'flicker-light'],
+  },
+  'b-archive': {
+    id: 'b-archive',
+    floor: 'B5~B8',
+    title: 'B5~B8 檔案室',
+    desc: ['一排又一排的鐵櫃延伸到看不見的地方。每個抽屜都貼著標籤：「2009 年度 · 其他」。', 'B8 最深處有微弱的檯燈光。'],
+    enemies: ['old-contract', 'biting-binder', 'jammed-shredder'],
+  },
+  'b-server': {
+    id: 'b-server',
+    floor: 'B9~B12',
+    title: 'B9~B12 舊機房',
+    desc: ['老舊的機櫃發出低沉的嗡嗡聲。有些伺服器的開機時間顯示：「6,742 天」。', '樓梯繼續往下。最底下的那扇門上，用紅漆寫著「B13」。'],
+    enemies: ['zombie-process', 'y2k-bug', 'two-am-cron'],
+  },
+  b13: {
+    id: 'b13',
+    floor: 'B13',
+    title: 'B13 機房 · 龍的巢穴',
+    desc: ['冷氣強到可以看見自己的呼吸。地上散落著無數本被啃過的行事曆。', '機房最深處，有什麼巨大的東西在呼吸。每一次呼氣，牆上的日曆就翻過一頁。'],
+  },
   exec: {
     id: 'exec',
     floor: '12F',
@@ -640,6 +897,8 @@ export interface FloorDef {
   /** 需要的旗標（例如打倒第一章 Boss 的 boss1）；沒有就是鎖住 */
   requires?: string;
   locked?: string;
+  /** 對應的開放段落（見 releases.ts）；還沒開放時鎖住 */
+  release?: 'ch3' | 'finale';
 }
 
 const CH2_LOCKED = '8F 以上的按鈕貼著一張便條：「7F 週會結束前，不開放」。先去解決大會議室的那場週會吧。';
@@ -656,7 +915,22 @@ export const FLOORS: FloorDef[] = [
   { label: '10F 法務部', room: 'legal', requires: 'boss1', locked: CH2_LOCKED },
   { label: '11F 資訊部', room: 'it', requires: 'boss1', locked: CH2_LOCKED },
   { label: '12F 董事長室', room: 'exec', requires: 'boss1', locked: CH2_LOCKED },
-  { label: 'B13', room: null, locked: '你按了 B13。按鈕亮了一下又熄掉，面板上顯示：「需要權限卡（3 片）」。' },
+  {
+    label: 'B1 停車場',
+    room: 'b-parking',
+    requires: 'card',
+    release: 'ch3',
+    locked: '你按了 B1。面板上顯示：「需要臨時權限卡」。也許 12 樓的事情解決之後，KPI-9000 有辦法。',
+  },
+  { label: 'B5 檔案室', room: 'b-archive', requires: 'mb1', release: 'ch3', locked: 'B5 的按鈕需要門禁卡。聽說 B4 的拖吊車上有一張。' },
+  { label: 'B9 舊機房', room: 'b-server', requires: 'mb2', release: 'ch3', locked: 'B9 的按鈕需要鑰匙。檔案室最深處的那個人，也許知道在哪。' },
+  {
+    label: 'B13',
+    room: 'b13',
+    requires: 'mb3',
+    release: 'finale',
+    locked: '你按了 B13。按鈕亮了一下又熄掉，面板上顯示：「需要權限卡（3 片）」。',
+  },
 ];
 
 /** 章節 Boss */
@@ -667,11 +941,72 @@ export interface BossDef {
   flag: string;
   /** 進門後所在的房間 */
   arena: RoomId;
+  button: string;
+  tooLow: string;
+  cleared: string;
 }
 
 export const BOSSES: BossDef[] = [
-  { room: 'meeting', enemy: 'weekly-meeting', minLevel: BOSS_MIN_LEVEL, flag: 'boss1', arena: 'boss-room' },
-  { room: 'exec', enemy: 'airdrop-project', minLevel: 9, flag: 'boss2', arena: 'exec' },
+  {
+    room: 'meeting',
+    enemy: 'weekly-meeting',
+    minLevel: BOSS_MIN_LEVEL,
+    flag: 'boss1',
+    arena: 'boss-room',
+    button: '🚪 進入大會議室',
+    tooLow: '門口的白板寫著：「與會資格：Lv{min} 以上」。你現在 Lv{lv}，再去練練吧。',
+    cleared: '大會議室空蕩蕩的。白板上還留著一行字：「本次會議提早結束」。',
+  },
+  {
+    room: 'exec',
+    enemy: 'airdrop-project',
+    minLevel: 9,
+    flag: 'boss2',
+    arena: 'exec',
+    button: '🚪 敲董事長室的門',
+    tooLow: '門上貼著：「Lv{min} 以上才能進入」。門縫裡傳來「這個很簡單」的聲音，你決定再練練。',
+    cleared: '董事長室的燈關著。桌上有一張便條：「今天準時下班。」',
+  },
+  {
+    room: 'b-parking',
+    enemy: 'tow-king',
+    minLevel: 11,
+    flag: 'mb1',
+    arena: 'b-parking',
+    button: '🚚 走向 B4 的拖吊車',
+    tooLow: '拖吊車的大燈照過來，你本能地退了一步。（建議 Lv{min} 以上，你現在 Lv{lv}）',
+    cleared: 'B4 的盡頭空了。地上只剩一道長長的輪胎痕。',
+  },
+  {
+    room: 'b-archive',
+    enemy: 'archivist',
+    minLevel: 12,
+    flag: 'mb2',
+    arena: 'b-archive',
+    button: '🕯 走向 B8 的檯燈',
+    tooLow: '檯燈下的人影抬起頭：「你的調閱權限不足。」（建議 Lv{min} 以上，你現在 Lv{lv}）',
+    cleared: '檯燈還亮著，桌上整齊地放著一張索引卡：「已歸檔」。',
+  },
+  {
+    room: 'b-server',
+    enemy: 'mainframe',
+    minLevel: 13,
+    flag: 'mb3',
+    arena: 'b-server',
+    button: '🖥 走向 B12 的大型主機',
+    tooLow: '主機的螢幕閃過一行字：「ACCESS LEVEL TOO LOW.」（建議 Lv{min} 以上，你現在 Lv{lv}）',
+    cleared: '大型主機安靜地關機了。螢幕上留著最後一行：「B13 ACCESS GRANTED.」',
+  },
+  {
+    room: 'b13',
+    enemy: 'kimatsu',
+    minLevel: 14,
+    flag: 'dragon',
+    arena: 'b13',
+    button: '🐉 喚醒季末',
+    tooLow: '黑暗中有一隻眼睛睜開了一條縫，又閉上了。牠還不把你當一回事。（建議 Lv{min} 以上，你現在 Lv{lv}）',
+    cleared: '機房裡很安靜。冷氣恢復了運轉，牆上的日曆停在週五。',
+  },
 ];
 
 // ---------- 天賦（Lv5、7、9 各選一個） ----------
@@ -743,6 +1078,71 @@ export const KPI_LINES = {
     'KPI-9000：「12F 的那份專案，每 4 回合就會變更一次需求。建議攜帶能量飲。」',
   ],
 };
+
+export const KPI_CH3 = {
+  card: [
+    'KPI-9000：「你讓 12F 的專案結案了。根據計算，現在是前往 B13 的最佳時機。」',
+    'KPI-9000：「我用你的兩片碎片，做了一張臨時權限卡。電梯只能到 B1，剩下的路要走樓梯。B4、B8、B12 各有一個守門的東西。」',
+    'KPI-9000：「第三片碎片在季末的肚子裡。……祝你好運。這是我第一次祝別人好運。」',
+  ],
+  locked: 'KPI-9000：「B13 的路線還在計算中。請稍後再來。」（第三章《B13》即將開放）',
+};
+
+export const GUARD_LINES_CH3 = [
+  '保全大叔：「你要下去了？……我在這裡顧了二十年，只看過一個人下去過。他現在是董事長。」',
+  '保全大叔：「B4 那台拖吊車，以前拖走過我的機車。幫我教訓它一下。」',
+  '保全大叔：「季末最可怕的不是火，是牠會吃掉你的『回合』。帶幾張特休假單下去吧。」',
+];
+
+export const ENDINGS = {
+  overtime: {
+    id: 'end-overtime',
+    choice: '⚔️ 給牠最後一擊',
+    title: '結局一：準時下班',
+    text: [
+      '你舉起武器，給了季末最後一擊。牠化成無數張日曆紙，在機房裡飄散。',
+      '隔天早上，雲頂大樓的每一個人都在 18:00 準時關上了電腦。8 樓以上的燈，第一次在晚上全部熄滅。',
+      '保全大叔在大廳的公告欄上貼了一張紙：「今日加班人數：0」。',
+    ],
+  },
+  weekend: {
+    id: 'end-weekend',
+    choice: '💬 問牠為什麼要吃週末',
+    title: '結局二：季末的週末',
+    text: [
+      '季末沉默了很久，然後說：「因為……我從來沒有過週末。我一出生就是季末。」',
+      '你帶牠搭電梯到 2F 茶水間。阿桂姨給了牠一塊餅乾。那是牠這輩子第一次休息。',
+      '下一季開始，公司宣布每季最後一週放「季末假」。季末成了公司的吉祥物，每天在茶水間的沙發上睡午覺。',
+    ],
+  },
+  schedule: {
+    id: 'end-schedule',
+    choice: '🤖 請 KPI-9000 接手',
+    title: '結局三：新的排程',
+    text: [
+      'KPI-9000 的聲音從機房的喇叭傳出來：「交給我吧。」',
+      '它幫季末寫了一個新的排程：每季睡 89 天，醒來 1 天，那天只負責吃掉「沒有人要開的會議」。',
+      '至於 KPI-9000 自己——它把監控頻率調成每週一到週五。週六，它第一次關機了。它說，週末的感覺「超出預期 100%」。',
+    ],
+    requires: 'kpi',
+  },
+} as const;
+
+export type EndingKey = keyof typeof ENDINGS;
+
+export const CREDITS = [
+  '【工作人員名單】',
+  '主角 ............ 你',
+  'AI 助理 ......... Mo',
+  '保全 ............ 保全大叔',
+  '總務 ............ 阿桂姨',
+  '監控 ............ KPI-9000',
+  '實習 ............ Intern-07',
+  '龍 .............. 季末',
+  '',
+  '感謝所有在上班時間偷偷玩到這裡的人。',
+  '記得按時下班。',
+];
 
 export interface PatrolEvent {
   text: string;
